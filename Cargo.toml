@@ -14,7 +14,7 @@ intel-mkl = ["ndarray-linalg/intel-mkl"]
 netlib = ["ndarray-linalg/netlib"]
 
 [dependencies]
-ndarray = {version = "0.13", features = ["blas"]}
+ndarray = {version = "0.15", features = ["blas"]}
 ndarray-linalg = {version = "0.12", optional = true, default-features = false}
-pyo3 = {version = "0.17.1", features = ["extension-module"]}
-numpy = {version = "0.17"}
+pyo3 = {version = "0.15.1", features = ["extension-module"]}
+numpy = {version = "0.15"}

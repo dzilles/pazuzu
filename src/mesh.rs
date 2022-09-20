@@ -1,25 +1,10 @@
 #[allow(dead_code)]
 use ndarray::prelude::*;
-//use std::fs;
 extern crate pyo3;
-
-use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::wrap_pyfunction;
-
-use numpy::ndarray::array;
-use numpy::{pyarray, ToPyArray};
-use numpy::ndarray::Zip;
-use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1, PyReadwriteArray2};
+//use numpy::ndarray::array;
+use numpy::PyArray2;
 use pyo3::{pymodule, types::PyModule, PyResult, Python};
-enum CoordinatePosition
-{
-	None,
-	CellCentered,
-	NodeCentered,
-}
-
-
 
 #[pyclass]
 /// A struct that represents a numerical mesh
@@ -33,9 +18,6 @@ pub struct Mesh
 
 	/// Number of cells
 	number_cells: usize,
-
-	/// Coordinate position (See enum CoordinatePosition for details)
-	coordinate_position: CoordinatePosition,
 
 	/// Cell type (See enum CellType for details)
 	cell_type: Option<CellType>,
@@ -67,7 +49,6 @@ impl Mesh {
 			 dimension: dim,
 			 number_nodes: size,
 		     number_cells: 0,
-		     coordinate_position: CoordinatePosition::None,
 		     cell_type: None,
 		     coordinates: Array2::<f64>::zeros(shape),
 		     node_ids: Array2::<usize>::zeros(shape),
@@ -101,9 +82,6 @@ impl Mesh {
         self.node_ids  = unsafe{nodes.as_array().into_owned()};
 
         self.cell_type = check_cell_type(self.node_ids.shape()[1], self.coordinates.shape()[1]).ok();
-
-        let a = CellType::Line;
-        //println!("{:?}", a);
 	}
 
 
@@ -123,7 +101,6 @@ fn pazuzu(_py: Python, m: &PyModule) -> PyResult<()> {
 
 
 enum CellType {
-    None,
     Line,
 	Triangle,
     Quadrangle,
