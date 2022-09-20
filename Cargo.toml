@@ -1,0 +1,20 @@
+[package]
+name = "pazuzu"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "pazuzu"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+openblas = ["ndarray-linalg/openblas"]
+intel-mkl = ["ndarray-linalg/intel-mkl"]
+netlib = ["ndarray-linalg/netlib"]
+
+[dependencies]
+ndarray = {version = "0.13", features = ["blas"]}
+ndarray-linalg = {version = "0.12", optional = true, default-features = false}
+pyo3 = {version = "0.17.1", features = ["extension-module"]}
+numpy = {version = "0.17"}
