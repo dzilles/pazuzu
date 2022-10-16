@@ -2,67 +2,51 @@ name: CI
 
 on:
   push:
-    branches: [ "main", "project_setup" ]
   pull_request:
-    branches: [ "main", "project_setup" ]
-
-  workflow_dispatch:
 
 jobs:
-  build_ubuntu:
-
-    name: Test on Ubuntu
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        lfs: true
-
-    - name: Update Rust
-      run: rustup update
-
-    - name: Build
-      run: |
-        cargo build --verbose
-    - name: Run tests
-      run: |
-        cargo test --verbose
-    - name: Build (--release)
-      run: |
-        cargo build --release --verbose
-    - name: Run tests (--release)
-      run: |
-        cargo test --release --verbose
-  build_windows:
-
-    name: Test on Windows
-    runs-on: windows-latest
-
+  coverage:
+    name: Coverage for ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: ["ubuntu"]
+    runs-on: ${{ matrix.os }}-latest
     steps:
       - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
         with:
-          lfs: true
-
-      - name: Update Rust
-        run: rustup update
-        shell: pwsh
-
-      - name: Build
+          python-version: "3.10"
+          cache: "pip"
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          profile: minimal
+          components: llvm-tools-preview
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v1
+        with:
+          key: coverage-cargo-${{ matrix.os }}
+        continue-on-error: true
+      - name: Setup virtual environment
         run: |
-          cargo build --verbose
-        shell: cmd
-      - name: Run tests
+          python -m venv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+      - name: Run coverage
         run: |
-          cargo test --verbose
-        shell: cmd
-
-      - name: Build (--release)
-        run: |
-          cargo build --release --verbose
-        shell: cmd
-      - name: Run tests (--release)
-        run: |
-          cargo test --release --verbose
-        shell: cmd
+          source venv/bin/activate
+          source <(cargo llvm-cov show-env --export-prefix)
+          export CARGO_TARGET_DIR=$CARGO_LLVM_COV_TARGET_DIR
+          export CARGO_INCREMENTAL=1
+          cargo llvm-cov clean --workspace
+          cargo test
+          maturin develop
+          pytest tests --cov=foobar --cov-report xml
+          cargo llvm-cov --no-run --lcov --output-path coverage.lcov
+      - uses: codecov/codecov-action@v3
+        with:
+          files: coverage.lcov,coverage.xml
+          name: ${{ matrix.os }}
 
