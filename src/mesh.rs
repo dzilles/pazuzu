@@ -13,34 +13,40 @@ pub struct Mesh
 	/// Dimension of the space
     dimension: usize,
 
-	/// Number of node coordinates
+	/// Number of nodes. Nodes are the coordinate points of a mesh
 	number_nodes: usize,
 
-	/// Number of cells
+	/// Number of cells. A cell is a space that is bounded by a certain number of nodes.
 	number_cells: usize,
 
-	/// Cell type (See enum CellType for details)
+	//number_vertices: usize,
+
+	//number_vertices_boundary: usize,
+
+	//number_faces: usize,
+
+	/// Cell type (See enum CellType for details). The cell type determines the number of nodes of
+    /// a single cell
 	cell_type: Option<CellType>,
 
-	/// Coordinates of the grid points
+	/// coordinates(nid, dim) x (dim=0), y (dim=1), z (dim=2) coordinates of node nid
 	coordinates: Array2<f64>,
 
-    // Node ids of the grid
+    // node_ids(vid, cid) of vertex vid in cell cid, size [number_cells, number_faces]
  	node_ids : Array2<usize>,
 
-	// Coordinates of the boundary points
-	// coordinates_boundary : ArrayBase<f64, Ix3>,
-
 	// Indices of the boundary points
-	// boundary_ids
+ 	//boundary_ids : Array2<usize>,
 
+ 	//neighbor_ids : Array2<usize>,
 	// physical_names
+ 	//adjacent_face_ids : Array2<usize>,
 }
 
 #[pymethods]
 impl Mesh {
-	/// Initialize grid of variable dimension and size 
     #[new]
+	/// Initialize grid of variable dimension and size 
 	pub fn new (size: usize, dim: usize) -> Mesh
 	{
 		let shape = (size, dim);
@@ -56,27 +62,24 @@ impl Mesh {
 	}
 		
 	/// Returns the dimension
-    #[getter]
 	pub fn get_dimension (&self) -> usize
 	{
 		return self.dimension;
 	}
 	
 	/// Returns the number of node coordinates
-    #[getter]
 	pub fn get_node_count (&self) -> usize
 	{
 		return self.number_nodes
 	}
 	
 	/// Returns the number of cells
-    #[getter]
 	pub fn get_cell_count (&self) -> usize
 	{
 		return self.number_cells;
 	}
  
-	pub fn set_coordinates<'py> (&mut self, coordinates: &PyArray2<f64>, nodes: &PyArray2<usize>)
+	pub fn setup_mesh<'py> (&mut self, coordinates: &PyArray2<f64>, nodes: &PyArray2<usize>)
 	{
         self.coordinates  = unsafe{coordinates.as_array().into_owned()};
         self.node_ids  = unsafe{nodes.as_array().into_owned()};
@@ -84,12 +87,9 @@ impl Mesh {
         self.cell_type = check_cell_type(self.node_ids.shape()[1], self.coordinates.shape()[1]).ok();
 	}
 
-
-	// Return reference to the coordinates
-	//pub fn ref_coordinates(&self) -> &Array<DataType, Dimension> {
-	//	return &self.coordinates;
-	//}
-    //
+	pub fn setup_boundary (&mut self, boundary_nodes: &PyArray2<usize>, group_name: String)
+	{
+	}
 }
 
 #[pymodule]
@@ -99,15 +99,14 @@ fn pazuzu(_py: Python, m: &PyModule) -> PyResult<()> {
     Ok(())
 }
 
-
 enum CellType {
     Line,
 	Triangle,
     Quadrangle,
     Tetrahedron,
     Hexahedron,
-    Prism,
-    Pyramid,
+    // Prism,
+    // Pyramid,
 }
 
 /// Check the cell type
@@ -136,12 +135,27 @@ fn check_cell_type(nodes: usize, dimension: usize) -> Result<CellType, String> {
 
             4 => return Ok(CellType::Tetrahedron),
             8 => return Ok(CellType::Hexahedron),
-            6 => return Ok(CellType::Prism),
-            5 => return Ok(CellType::Pyramid),
+            // 6 => return Ok(CellType::Prism),
+            // 5 => return Ok(CellType::Pyramid),
             _ => return Err("Cell type not implemented".to_string()),
         }
     }
     else {
         return Err("Dimension must be 1D, 2D or 3D".to_string());
     }
+}
+
+#[test]
+fn test_check_cell_type() {
+
+    assert!(check_cell_type(3, 0).is_err());
+    assert!(check_cell_type(3, 4).is_err());
+    assert!(check_cell_type(3, 1).is_err());
+    assert!(check_cell_type(5, 2).is_err());
+    assert!(check_cell_type(1, 3).is_err());
+    assert!(matches!(check_cell_type(2, 1).unwrap(), CellType::Line));
+    assert!(matches!(check_cell_type(3, 2).unwrap(), CellType::Triangle));
+    assert!(matches!(check_cell_type(4, 2).unwrap(), CellType::Quadrangle));
+    assert!(matches!(check_cell_type(4, 3).unwrap(), CellType::Tetrahedron));
+    assert!(matches!(check_cell_type(8, 3).unwrap(), CellType::Hexahedron));
 }
