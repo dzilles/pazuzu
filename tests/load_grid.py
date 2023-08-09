@@ -28,12 +28,12 @@ y = a[1].reshape(-1, 3)[:,1];
 v = vis.Visualization();
 #v.initialize_scalar_bar();
 
-#v.initialize_data_plot(x, y)
+v.initialize_data_plot(x, y)
 
-#v.plot_grid(x, y);
+v.plot_grid(x, y);
 
-#while(True):
-#v.Render()
+while(True):
+    v.Render()
 
 v = numpy.arange(0, a[0].reshape(-1,3).shape[0], 1).reshape(-1,1)
 vv = a[0].reshape(-1,3)
@@ -56,36 +56,37 @@ number_nodes = x.shape[0]
 
 
 #print(vv)
-tmp1 = numpy.column_stack((vv[:,0], vv[:,1]))
-tmp2 = numpy.column_stack((vv[:,1], vv[:,2]))
-tmp3 = numpy.column_stack((vv[:,2], vv[:,0]))
+#tmp1 = numpy.column_stack((vv[:,0], vv[:,1]))
+#tmp2 = numpy.column_stack((vv[:,1], vv[:,2]))
+#tmp3 = numpy.column_stack((vv[:,2], vv[:,0]))
  
-fnodes = numpy.row_stack((tmp1, tmp2, tmp3)) 
+#fnodes = numpy.row_stack((tmp1, tmp2, tmp3)) 
 
-fnodes.sort(axis=1)
+#fnodes.sort(axis=1)
    
 
-EToE = numpy.arange(0, number_cells, 1).reshape(-1,1)*numpy.ones(number_faces).reshape(1, number_faces).astype(int)
+#EToE = numpy.arange(0, number_cells, 1).reshape(-1,1)*numpy.ones(number_faces).reshape(1, number_faces).astype(int)
 
-EToF = numpy.ones(number_cells).reshape(-1,1)*numpy.arange(0, number_faces).reshape(1, number_faces)
+#EToF = numpy.ones(number_cells).reshape(-1,1)*numpy.arange(0, number_faces).reshape(1, number_faces)
 
-ident = fnodes[:,0]*number_nodes + fnodes[:,1]
+#ident = fnodes[:,0]*number_nodes + fnodes[:,1]
 
-ident2 = numpy.arange(0,number_faces*number_cells)
+#ident2 = numpy.arange(0,number_faces*number_cells)
 
-spNodeToNode = (numpy.column_stack((ident.reshape(-1,1), ident2.reshape(-1,1), EToE.reshape(-1,1), EToF.reshape(-1,1)))).astype(int)
+#spNodeToNode = (numpy.column_stack((ident.reshape(-1,1), ident2.reshape(-1,1), EToE.reshape(-1,1), EToF.reshape(-1,1)))).astype(int)
 
-spNodeToNode = spNodeToNode[numpy.lexsort(spNodeToNode.T[::-1])]
+#spNodeToNode = spNodeToNode[numpy.lexsort(spNodeToNode.T[::-1])]
 
-indices = (numpy.where(numpy.equal(spNodeToNode[0:-2, 0], spNodeToNode[1:-1,0]))).reshape(-1,1)
+#indices = numpy.where(numpy.equal(spNodeToNode[0:-2, 0], spNodeToNode[1:-1,0]))
+#print(indices)
 
-inices2 = indices + numpy.ones(indices.shape())
+#inices2 = indices + numpy.ones(indices)
 
 
-matchL = spNodeToNode[indices,:] 
+#matchL = spNodeToNode[indices,:] 
 #matchR = spNodeToNode[indices+1,:]
 
-print(matchL)
+#print(matchL)
 
-gmsh.finalize();
+#gmsh.finalize();
 
