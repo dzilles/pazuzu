@@ -9,6 +9,7 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
+generate_test_data = []
 openblas = ["ndarray-linalg/openblas"]
 intel-mkl = ["ndarray-linalg/intel-mkl"]
 netlib = ["ndarray-linalg/netlib"]
@@ -18,3 +19,9 @@ ndarray = {version = "0.15", features = ["blas"]}
 ndarray-linalg = {version = "0.12", optional = true, default-features = false}
 pyo3 = {version = "0.15.1", features = ["extension-module"]}
 numpy = {version = "0.15"}
+nalgebra = {version = "0.32.2"}
+gauss-quad = "0.1.5"
+float_eq = "1" #Used for float comparision
+libm = "0.2.6"
+serde_json = "1.0.96"
+serde = {version = "1.0.160", features = ["derive"]}

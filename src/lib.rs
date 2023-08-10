@@ -1,4 +1,6 @@
 mod mesh;
+mod galerkin; 
+mod numerical_basics;
 
 
 /*use pyo3::prelude::*;
