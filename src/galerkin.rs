@@ -1,5 +1,5 @@
 use crate::numerical_basics;
-use nalgebra::DVector;
+use nalgebra::{DVector, DMatrix};
 use crate::mesh::Mesh;
 use libm::cos;
 use libm::sin;
@@ -222,9 +222,13 @@ impl GalerkinMesh {
     }
 
 
-    //fn vandermonde(order: usize, r_1, r_2, r_3) {
+    fn vandermonde(order: usize, r: &DVector<f64>, s: &DVector<f64>) {
 
-    //}
+        let size = r.shape().0;
+
+        let vandermonde: DMatrix<f64> = DMatrix::from_element(size, (order+1)*(order+2)/2, 0.0);
+        let (a, b) = numerical_basics::orthonormalize(r, s);
+    }
 
 
     //fn diff_matrices() {
@@ -241,22 +245,13 @@ impl GalerkinMesh {
     fn vandermonde_1d() {
     }
 
-
-
-    fn orthonomalize() {
-    }
-
-    fn simplex() {
-    }
-
-
     fn grad_vandermonde() {
     }
 
     fn grad_simplex() {
     }
 
-    fn surf_integral() {
+    )*fn surf_integral() {
     }*/
 }
 

@@ -32,7 +32,7 @@ gmsh.model.geo.synchronize()
 gmsh.model.mesh.generate()
 
 # Write mesh data:
-gmsh.write("GFG.msh")
+gmsh.write("data/GFG.msh")
 
 # Creates graphical user interface
 if 'close' not in sys.argv:

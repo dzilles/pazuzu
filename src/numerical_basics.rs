@@ -188,6 +188,24 @@ pub fn warpfactor(order: usize, x: &DVector<f64>) -> DVector<f64>{
     warp1+warp2
 }
 
+pub fn orthonormalize(r: &DVector<f64>, s: &DVector<f64>) -> (DVector<f64>, DVector<f64>) {
+
+    let mut a = DVector::from_element(r.shape().0, 0.0);
+
+    for n in 0..r.shape().0 {
+
+        if s[n] != 1.0
+        {
+            a[n] = 2.0*(1.0+r[n])/(1.0-s[n])-1.0;
+        }
+        else
+        {
+            a[n] = -1.0;
+        }
+    }
+    (a,s.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::numerical_basics;
@@ -267,5 +285,11 @@ mod tests {
         float_eq::assert_float_eq!(warpf[1], 0.0, abs <= eps);
         float_eq::assert_float_eq!(warpf[2], 0.0, abs <= eps);
         float_eq::assert_float_eq!(warpf[3], 0.0, abs <= eps);
+    }
+
+    #[test] 
+    fn orthonormalize() {
+
+        assert!(false)
     }
 }
