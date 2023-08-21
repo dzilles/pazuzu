@@ -87,7 +87,7 @@ impl Mesh {
         self.cell_type = check_cell_type(self.node_ids.shape()[1], self.coordinates.shape()[1]).ok();
 	}
 
-	pub fn setup_boundary (&mut self, boundary_nodes: &PyArray2<usize>, group_name: String)
+	pub fn setup_boundary (&mut self, _boundary_nodes: &PyArray2<usize>, _group_name: String)
 	{
 	}
 }

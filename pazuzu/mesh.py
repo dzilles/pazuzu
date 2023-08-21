@@ -37,25 +37,29 @@ class Mesh:
     #
     def __init__(self, path_to_file):
 
+        self.number_nodes = 0;
+        self.number_cells = 0;
+        self.number_faces_per_cell = 3;
+
         ## Coordinates of the mesh
-        #self.coordinates = numpy.array([], dtype=float);
+        self.coordinates = numpy.array([], dtype=float);
 
         ## Indices of nodes yielding cells
-        #self.cell_node_ids = numpy.array([], dtype=int);
+        self.cell_node_ids = numpy.array([], dtype=int);
 
         ## Indices of nodes yielding faces
-        #self.face_node_ids = numpy.array([], dtype=int);
+        self.face_node_ids = numpy.array([], dtype=int);
 
         ## Indices of neighbor nodes
-        #self.neighbor_ids = numpy.array([], dtype=int)
+        self.neighbor_ids = numpy.array([], dtype=int)
 
         ## Indices of adjacent faces
-        #self.adjacent_face_ids = numpy.array([], dtype=int)
+        self.adjacent_face_ids = numpy.array([], dtype=int)
 
         ## Load the data from a gmsh file
         self.load_gmsh(path_to_file)
 
-    ## Set new data
+    ## Load gmsh file
     #  @param self The object pointer.
     #  @param data Numpy matrix with the data values.
     #

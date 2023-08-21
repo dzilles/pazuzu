@@ -7,7 +7,7 @@ numpy.set_printoptions(threshold=sys.maxsize)
 
 
 
-msh = mesh.Mesh("GFG.msh");
+msh = mesh.Mesh("vertex_2D.msh");
 
 v = vis.Visualization();
 #v.initialize_scalar_bar();
