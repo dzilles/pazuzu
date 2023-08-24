@@ -29,6 +29,9 @@ jobs:
         with:
           key: coverage-cargo-${{ matrix.os }}
         continue-on-error: true
+      - name: Install missing packages
+        run: |
+          sudo apt-get install libglu1
       - name: Setup virtual environment
         run: |
           python -m venv venv
