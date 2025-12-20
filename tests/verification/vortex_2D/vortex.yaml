@@ -1,0 +1,27 @@
+simulation:
+  type: "euler_2d"
+  t_final: 1.0
+  cfl: 0.05
+  output_dir: "output"
+  log_frequency: 10
+  device: "cpu"
+
+mesh:
+  type: "unstructured"
+  filename: "box.msh"
+
+numerical:
+  polynomial_degree: 4
+
+initial_condition:
+  name: "vortex"
+
+boundaries:
+  "Left":
+    type: "farfield"
+  "Right":
+    type: "farfield"
+  "Top":
+    type: "farfield"
+  "Bottom":
+    type: "farfield"

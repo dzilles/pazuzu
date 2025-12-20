@@ -4,3 +4,4 @@ __pycache__/
 .vscode/
 *.pyc
 simulation_video.mp4
+output/

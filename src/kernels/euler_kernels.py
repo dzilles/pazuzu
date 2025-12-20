@@ -5,6 +5,9 @@ gamma = 1.4
 rho_floor = 1.0e-5
 p_floor = 1.0e-5
 
+BC_WALL = 1
+BC_FARFIELD = 2
+
 # --- Equation Kernels (Funktionen, die in anderen Kernels genutzt werden) ---
 
 @wp.func
@@ -72,27 +75,36 @@ def compute_volume_term(
     rhs: wp.array(dtype=wp.vec4, ndim=2),    # Output RHS
     Dr: wp.array(dtype=wp.float32, ndim=2),  # Differentiation Matrix r
     Ds: wp.array(dtype=wp.float32, ndim=2),  # Differentiation Matrix s
-    rx: wp.array(dtype=wp.float32, ndim=1),  # Metric dr/dx (per Element)
-    sy: wp.array(dtype=wp.float32, ndim=1),  # Metric ds/dy (per Element)
+    rx: wp.array(dtype=wp.float32, ndim=1),  # Metric dr/dx
+    ry: wp.array(dtype=wp.float32, ndim=1),  # Metric dr/dy
+    sx: wp.array(dtype=wp.float32, ndim=1),  # Metric ds/dx
+    sy: wp.array(dtype=wp.float32, ndim=1),  # Metric ds/dy
     Np: wp.int32                             # Number of points per element
 ):
     """
-    Computes -div(F) using the strong form:
-    rhs = - (rx * Dr * F + sy * Ds * G)
+    Computes -div(F) using the strong form for general curvilinear coordinates:
+    div F = dF/dx + dG/dy
+    
+    Chain rule:
+    dF/dx = (dF/dr * dr/dx) + (dF/ds * ds/dx)
+    dG/dy = (dG/dr * dr/dy) + (dG/ds * ds/dy)
+    
+    rhs = - (dF_dx + dG_dy)
     """
     e, i = wp.tid() # Element e, Node i
 
-    # Load Metrics for this element
-    # Für kartesische Gitter sind rx, sy konstant im Element
+    # Load Metrics for this element (constant for affine elements)
     dr_dx = rx[e]
+    dr_dy = ry[e]
+    ds_dx = sx[e]
     ds_dy = sy[e]
 
-    # Wir berechnen die Ableitung an Node i als Vektorprodukt
     dF_dr = wp.vec4(0.0)
+    dF_ds = wp.vec4(0.0)
+    dG_dr = wp.vec4(0.0)
     dG_ds = wp.vec4(0.0)
 
     # Matrix-Vector Multiplication: Sum over j
-    # (Kann optimiert werden mit Shared Memory, aber Warp macht das oft automatisch gut)
     for j in range(Np):
         q_val = q[e, j]
         
@@ -101,16 +113,22 @@ def compute_volume_term(
         G_val = flux_y(q_val)
         
         # Accumulate derivatives
-        dF_dr += F_val * Dr[i, j]
-        dG_ds += G_val * Ds[i, j]
+        # We need derivatives of both fluxes with respect to both ref coords
+        dr = Dr[i, j]
+        ds = Ds[i, j]
+        
+        dF_dr += F_val * dr
+        dF_ds += F_val * ds
+        
+        dG_dr += G_val * dr
+        dG_ds += G_val * ds
 
-    # Chain rule: dF/dx = dF/dr * dr/dx  (da dr/dy = 0 etc. bei Rechtecken)
-    div_F = dF_dr * dr_dx + dG_ds * ds_dy
+    # Apply Chain Rule
+    dF_dx = dF_dr * dr_dx + dF_ds * ds_dx
+    dG_dy = dG_dr * dr_dy + dG_ds * ds_dy
     
     # RHS update (Strong Form: rhs = -div F)
-    # Wir benutzen atomic_sub, falls wir diesen Kernel mehrmals aufrufen würden, 
-    # aber hier reicht direktes Zuweisen, wenn wir RHS vorher nullen.
-    rhs[e, i] = -div_F 
+    rhs[e, i] = -(dF_dx + dG_dy) 
 
 
 @wp.kernel
@@ -120,45 +138,32 @@ def compute_surface_term(
     connectivity: wp.array(dtype=wp.int32, ndim=2), # (NumElems, 4) -> NeighborID
     face_map: wp.array(dtype=wp.int32, ndim=2),# (4, Nfp) -> Node Indices on faces
     LIFT: wp.array(dtype=wp.float32, ndim=2),  # (Np, 4*Nfp) Lift Matrix
-    Js_x: wp.array(dtype=wp.float32, ndim=1),  # Surface Jacobian x-face (dy/2)
-    Js_y: wp.array(dtype=wp.float32, ndim=1),  # Surface Jacobian y-face (dx/2)
+    face_geo_factors: wp.array(dtype=wp.float32, ndim=3), # (NumElements, 4, 3) -> nx, ny, J_surf
     J: wp.array(dtype=wp.float32, ndim=1),     # Volume Jacobian
+    bc_mask: wp.array(dtype=wp.int32, ndim=2), # (NumElements, 4) -> BC Type ID
     Nfp: wp.int32                              # Number of face points
 ):
     """
     Computes the Flux Jump and Lifts it to the volume nodes.
     Iterates over elements, calculates fluxes on all 4 faces, adds to RHS.
+    Supports unstructured meshes by reading normals and scaling from face_geo_factors.
+    Handles Boundary Conditions via bc_mask.
     """
     e = wp.tid() # One thread per element
 
-    # Pre-load Geometric Factors
+    # Pre-load Volume Jacobian
     vol_J = J[e]
     inv_J = 1.0 / vol_J
-    surf_J_x = Js_x[e] # For vertical faces (Left/Right) -> Length involves dy
-    surf_J_y = Js_y[e] # For horizontal faces (Bottom/Top) -> Length involves dx
 
     # Loop over all 4 faces
     for face_idx in range(4):
         
-        # Determine Face Normal and Surface Jacobian
-        nx = 0.0
-        ny = 0.0
-        surf_J = 0.0
-        
-        if face_idx == 0:   # Bottom (y=-1)
-            nx = 0.0; ny = -1.0; surf_J = surf_J_y
-        elif face_idx == 1: # Right (x=+1)
-            nx = 1.0; ny = 0.0; surf_J = surf_J_x
-        elif face_idx == 2: # Top (y=+1)
-            nx = 0.0; ny = 1.0; surf_J = surf_J_y
-        elif face_idx == 3: # Left (x=-1)
-            nx = -1.0; ny = 0.0; surf_J = surf_J_x
+        # Load geometric factors for this face
+        nx = face_geo_factors[e, face_idx, 0]
+        ny = face_geo_factors[e, face_idx, 1]
+        surf_J = face_geo_factors[e, face_idx, 2]
 
         # Get Neighbor Info
-        # Connectivity speichert hier [neighbor_id, neighbor_face_index]
-        # Vereinfachung: Wir nehmen an, connectivity ist (NumElems, 4) mit NeighborIDs
-        # und das Gitter ist konform -> wir finden die Indices rechnerisch.
-        
         neighbor_e = connectivity[e, face_idx] 
         
         # Loop over nodes on this face
@@ -167,17 +172,45 @@ def compute_surface_term(
             node_idx_local = face_map[face_idx, k]
             
             q_inner = q[e, node_idx_local]
-            q_outer = q_inner # Default for boundary (e.g. wall)
+            q_outer = q_inner # Default initialization
             
             if neighbor_e >= 0:
+                # --- Interior Face ---
                 # Find matching node on neighbor face.
-                # Standard Structured Mesh logic:
                 # If I am face 1 (Right), neighbor sees me as face 3 (Left).
-                # Matching node ordering usually reverses (k -> Nfp-1-k) in 2D to match coordinates.
+                # Matching node ordering reverses (k -> Nfp-1-k).
                 neighbor_face = (face_idx + 2) % 4
-                #neighbor_node_idx = face_map[neighbor_face, Nfp - 1 - k]
+                
                 neighbor_node_idx = face_map[neighbor_face, k]
                 q_outer = q[neighbor_e, neighbor_node_idx]
+            else:
+                # --- Boundary Face ---
+                bc_type = bc_mask[e, face_idx]
+                
+                if bc_type == BC_WALL:
+                    # Slip Wall: Mirror velocity vector across the wall (remove normal component)
+                    # v_ghost = v - 2(v . n)n
+                    
+                    rho = q_inner[0]
+                    rhou = q_inner[1]
+                    rhov = q_inner[2]
+                    E = q_inner[3]
+                    
+                    # Momentum dot Normal
+                    mom_dot_n = rhou * nx + rhov * ny
+                    
+                    rhou_ghost = rhou - 2.0 * mom_dot_n * nx
+                    rhov_ghost = rhov - 2.0 * mom_dot_n * ny
+                    
+                    q_outer = wp.vec4(rho, rhou_ghost, rhov_ghost, E)
+                    
+                elif bc_type == BC_FARFIELD:
+                    # Extrapolation (Zero-Gradient / Transmissive)
+                    q_outer = q_inner
+                
+                else:
+                    # Default/Fallback
+                    q_outer = q_inner
             
             # 1. Numerical Flux (F*)
             f_star = rusanev_flux(q_inner, q_outer, nx, ny)
@@ -189,8 +222,6 @@ def compute_surface_term(
             flux_jump = (f_n - f_star) * surf_J
             
             # 4. LIFTing: Add contribution to ALL volume nodes
-            # LIFT matrix maps surface node k (on face f) to volume node i
-            # Row in LIFT: volume node i, Col in LIFT: face_idx * Nfp + k
             lift_col = face_idx * Nfp + k
             
             for i in range(q.shape[1]): # Iterate over all volume nodes (Np)
@@ -198,20 +229,7 @@ def compute_surface_term(
                 # Add to RHS: 1/J * LIFT * Jump
                 val = lift_val * flux_jump * inv_J
                 
-                # Atomic add needed because multiple faces contribute to same node
                 wp.atomic_add(rhs, e, i, val)
-
-@wp.kernel
-def rk_step(
-    q_old: wp.array(dtype=wp.vec4, ndim=2),
-    q_new: wp.array(dtype=wp.vec4, ndim=2),
-    rhs: wp.array(dtype=wp.vec4, ndim=2),
-    dt: wp.float32,
-    a: wp.float32, # RK parameter for q_old
-    b: wp.float32  # RK parameter for (q_new + dt*rhs)
-):
-    e, i = wp.tid()
-    q_new[e, i] = a * q_old[e, i] + b * (q_new[e, i] + dt * rhs[e, i])
 
 @wp.kernel
 def compute_max_wave_speed(
@@ -245,46 +263,3 @@ def compute_max_wave_speed(
     # Globales Maximum schreiben
     # Hinweis: atomic_max funktioniert in neueren Warp-Versionen auch für floats.
     wp.atomic_max(max_speed, 0, wave_speed)
-
-@wp.kernel
-def rk_stage_1(
-    q: wp.array(dtype=wp.vec4, ndim=2),
-    rhs: wp.array(dtype=wp.vec4, ndim=2),
-    dt: wp.float32,
-    q_out: wp.array(dtype=wp.vec4, ndim=2)
-):
-    """
-    Stage 1: Q(1) = Q_n + dt * RHS(Q_n)
-    """
-    e, i = wp.tid()
-    q_out[e, i] = q[e, i] + dt * rhs[e, i]
-
-@wp.kernel
-def rk_stage_2(
-    q: wp.array(dtype=wp.vec4, ndim=2),      # Q_n (Startzustand)
-    q_1: wp.array(dtype=wp.vec4, ndim=2),    # Q(1) aus Stage 1
-    rhs: wp.array(dtype=wp.vec4, ndim=2),    # RHS(Q(1))
-    dt: wp.float32,
-    q_out: wp.array(dtype=wp.vec4, ndim=2)   # Ziel für Q(2)
-):
-    """
-    Stage 2: Q(2) = 3/4 * Q_n + 1/4 * (Q(1) + dt * RHS(Q(1)))
-    """
-    e, i = wp.tid()
-    # 0.75 * Q_n + 0.25 * (Q_1 + dt * RHS)
-    q_out[e, i] = 0.75 * q[e, i] + 0.25 * (q_1[e, i] + dt * rhs[e, i])
-
-@wp.kernel
-def rk_stage_3(
-    q: wp.array(dtype=wp.vec4, ndim=2),      # Q_n
-    q_2: wp.array(dtype=wp.vec4, ndim=2),    # Q(2) aus Stage 2
-    rhs: wp.array(dtype=wp.vec4, ndim=2),    # RHS(Q(2))
-    dt: wp.float32,
-    q_out: wp.array(dtype=wp.vec4, ndim=2)   # Ziel für Q(n+1) (überschreibt oft self.Q)
-    ):
-    """
-    Stage 3: Q(n+1) = 1/3 * Q_n + 2/3 * (Q(2) + dt * RHS(Q(2)))
-    """
-    e, i = wp.tid()
-    # 1/3 * Q_n + 2/3 * (Q_2 + dt * RHS)
-    q_out[e, i] = (1.0/3.0) * q[e, i] + (2.0/3.0) * (q_2[e, i] + dt* rhs[e, i])

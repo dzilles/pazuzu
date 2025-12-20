@@ -1,116 +1,120 @@
-from src.dg_solver.mesh import Mesh
-from src.dg_solver.basis import Basis
-from src.dg_solver.solver import DGSolver
+from src.geometry.mesh import Mesh
+from src.core.basis import Basis
+from src.physics.euler_2d import Euler2DSolver
+from src.core.driver import TimeIntegrator
+from src.io.data_writer import HDF5Writer
+from src.physics import initial_conditions as ic
 
 import numpy as np
 import os
 import argparse
+import yaml
+import sys
 
-def initial_conditions_vortex(x, y):
-    """
-    2D Isentropic Vortex problem.
-    This is a common test case for Euler solvers.
-    The solution is a vortex that advects diagonally across the domain.
-    """
-    gamma = 1.4
-    beta = 5.0  # Vortex strength
-    r_sq = (x - 5.0)**2 + (y - 5.0)**2
-    
-    u_inf = 1.0
-    v_inf = 1.0
-    
-    du = -(beta / (2 * np.pi)) * np.exp(0.5 * (1 - r_sq)) * (y - 5.0)
-    dv = (beta / (2 * np.pi)) * np.exp(0.5 * (1 - r_sq)) * (x - 5.0)
-    
-    u = u_inf + du
-    v = v_inf + dv
-    
-    T_inf = 1.0
-    T = T_inf - ((gamma - 1) * beta**2 / (8 * gamma * np.pi**2)) * np.exp(1 - r_sq)
-    
-    rho = T**(1.0 / (gamma - 1))
-    p = rho**gamma
-    
-    return rho, u, v, p
+def get_initial_condition_func(name):
+    if name == "vortex":
+        return ic.vortex
+    elif name == "uniform":
+        return ic.uniform
+    else:
+        raise ValueError(f"Unknown initial condition: {name}")
 
-def initial_conditions_uniform(x, y):
-    """
-    Uniform flow.
-    """
-    rho = 1.0
-    u = 1.0
-    v = 0.0
-    p = 1.0
-    return rho, u, v, p
+def main(config_path):
+    
+    print(f"Loading configuration from {config_path}...")
+    # Get the directory of the config file to resolve relative paths
+    config_dir = os.path.dirname(os.path.abspath(config_path))
+    
+    with open(config_path, 'r') as f:
+        cfg = yaml.safe_load(f)
 
+    # --- Extract Settings ---
+    sim_cfg = cfg['simulation']
+    mesh_cfg = cfg['mesh']
+    num_cfg = cfg['numerical']
+    ic_cfg = cfg['initial_condition']
 
-def main(args):
     # Simulation parameters
-    polynomial_degree = 4
-    nx = args.nx
-    ny = args.ny
-    t_final =20.0
-    device = args.device
-
-    # --- Domain ---
-    x_min, x_max = 0.0, 10.0
-    y_min, y_max = 0.0, 10.0
+    polynomial_degree = num_cfg['polynomial_degree']
+    t_final = sim_cfg['t_final']
+    device = sim_cfg.get('device', 'cpu') # Default to CPU for safety
+    CFL = sim_cfg['cfl']
+    log_freq = sim_cfg.get('log_frequency', 10)
     
-    # --- CFL condition ---
-    # dt = CFL * dx / ( |u| + c )
-    # For DG, CFL is restricted by ~1/(2N+1), where N is the polynomial degree.
-    # For N=3, CFL < 0.14. We choose a safe value.
-    CFL = 0.05
+    # Resolve output directory
+    output_dir = sim_cfg['output_dir']
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(config_dir, output_dir)
 
-    # Create mesh and basis
-    print(f"Creating mesh ({nx}x{ny}) and basis (N={polynomial_degree})...")
-    mesh = Mesh(nx=nx, ny=ny, x_min=x_min, x_max=x_max, y_min=y_min, y_max=y_max, device=device)
+    # --- Mesh Setup ---
+    print("Initializing Mesh...")
+    if mesh_cfg['type'] == 'cartesian':
+        nx = mesh_cfg['nx']
+        ny = mesh_cfg['ny']
+        x_min = mesh_cfg['x_min']
+        x_max = mesh_cfg['x_max']
+        y_min = mesh_cfg['y_min']
+        y_max = mesh_cfg['y_max']
+        print(f"  Type: Cartesian ({nx}x{ny})")
+        mesh = Mesh(nx=nx, ny=ny, x_min=x_min, x_max=x_max, y_min=y_min, y_max=y_max, device=device)
+    
+    elif mesh_cfg['type'] == 'unstructured':
+        filename = mesh_cfg['filename']
+        # Resolve mesh filename
+        if not os.path.isabs(filename):
+            filename = os.path.join(config_dir, filename)
+            
+        print(f"  Type: Unstructured (loading from {filename})")
+        if not os.path.exists(filename):
+             raise FileNotFoundError(f"Mesh file not found: {filename}")
+        mesh = Mesh(filename=filename, device=device)
+    
+    else:
+        raise ValueError(f"Unknown mesh type: {mesh_cfg['type']}")
+
+    # --- Basis Setup ---
+    print(f"Initializing Basis (Poly Degree N={polynomial_degree})...")
     basis = Basis(polynomial_degree=polynomial_degree, device=device)
 
-    # Create the solver
-    print("Initializing solver...")
-    solver = DGSolver(mesh, basis, initial_conditions_func=initial_conditions_vortex)
+    # --- Solver Setup ---
+    ic_name = ic_cfg['name']
+    print(f"Initializing Solver with IC: {ic_name}...")
+    ic_func = get_initial_condition_func(ic_name)
+    
+    # Instantiate Euler2DSolver
+    solver = Euler2DSolver(mesh, basis, config=cfg)
+    solver.initialize(ic_func)
 
-
-    output_dir = "data"
-    np.savez(
-        os.path.join(output_dir, "init.npz"), 
-        q=solver.Q.numpy(), 
-        x=solver.x.numpy(), 
-        y=solver.y.numpy(),
-        vertices=mesh.vertices_host
-    )
-
-    # Run the simulation
-    print(f"Starting simulation on device '{device}'...")
-    print(f"t_final = {t_final}, CFL = {CFL}")
-    solver.solve(t_final=t_final, CFL=CFL, log_frequency=20)
-    print("Simulation finished.")
-
-    # Save the solution
-    print("Saving solution to data/output.npz...")
-    output_dir = "data"
+    # --- Output Directory ---
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    
-    np.savez(
-        os.path.join(output_dir, "output.npz"), 
-        q=solver.Q.numpy(), 
-        x=solver.x.numpy(), 
-        y=solver.y.numpy(),
-        vertices=mesh.vertices_host
-    )
+        
+    writer = HDF5Writer(os.path.join(output_dir, "results.h5"), mesh)
 
-    print("Solution saved.")
+    # Save Initial State
+    print("Saving initial state...")
+    writer.write_step(0, 0.0, solver.Q.numpy())
+
+    # --- Run Simulation ---
+    print(f"Starting simulation on device '{device}'...")
+    print(f"t_final = {t_final}, CFL = {CFL}")
+    
+    # Instantiate Driver
+    driver = TimeIntegrator(solver)
+    driver.solve(t_final=t_final, CFL=CFL, log_frequency=log_freq, writer=writer)
+    
+    print("Simulation finished.")
+    print(f"Results saved to {output_dir}/results.h5 and .xmf")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="2D Discontinuous Galerkin Euler Solver with Nvidia Warp")
-    parser.add_argument("--poly_degree", type=int, default=3, help="Polynomial degree for the basis functions.")
-    parser.add_argument("--nx", type=int, default=32, help="Number of elements in the x-direction.")
-    parser.add_argument("--ny", type=int, default=32, help="Number of elements in the y-direction.")
-    parser.add_argument("--t_final", type=float, default=20.0, help="Final simulation time.")
-    parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="Device to run the simulation on.")
+    parser.add_argument("config", type=str, nargs='?', default="config/default.yaml", help="Path to the YAML configuration file.")
     
     args = parser.parse_args()
-    main(args)
+    
+    if not os.path.exists(args.config):
+        print(f"Error: Config file '{args.config}' not found.")
+        sys.exit(1)
+        
+    main(args.config)

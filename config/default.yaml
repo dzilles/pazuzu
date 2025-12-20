@@ -1,0 +1,25 @@
+simulation:
+  type: "euler_2d"
+  t_final: 20.0
+  cfl: 0.05
+  output_dir: "data"
+  log_frequency: 20
+  device: "cpu" # Options: "cpu", "cuda"
+
+mesh:
+  type: "cartesian" # Options: "cartesian", "unstructured"
+  # Cartesian settings
+  nx: 32
+  ny: 32
+  x_min: 0.0
+  x_max: 10.0
+  y_min: 0.0
+  y_max: 10.0
+  # Unstructured settings
+  filename: "" # e.g. "meshes/grid.msh"
+
+numerical:
+  polynomial_degree: 4
+
+initial_condition:
+  name: "vortex" # Options: "vortex", "uniform"
