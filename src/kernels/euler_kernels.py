@@ -1,38 +1,18 @@
 import warp as wp
+from src.kernels import boundary_conditions as bc
 
 # --- Constants ---
 gamma = 1.4
 rho_floor = 1.0e-5
 p_floor = 1.0e-5
 
-BC_WALL = 1
-BC_FARFIELD = 2
-BC_INLET = 3
-BC_OUTLET = 4
+# Use constants from BC module
+BC_WALL = bc.BC_WALL
+BC_FARFIELD = bc.BC_FARFIELD
+BC_INLET = bc.BC_INLET
+BC_OUTLET = bc.BC_OUTLET
 
 # --- Equation Kernels (Helper functions used by other kernels) ---
-
-@wp.func
-def get_freestream_state(t: wp.float32, ramp_time: wp.float32) -> wp.vec4:
-    """Returns the freestream state with ramping (rho=1, u=ramped, v=0, p=1)."""
-    rho = 1.0
-    
-    # Ramp u from 0 to 1 over ramp_time
-    target_u = 1.0
-    factor = 1.0
-    if t < ramp_time:
-        factor = t / ramp_time
-        
-    u = target_u * factor
-    v = 0.0
-    p = 1.0
-    
-    rho_u = rho * u
-    rho_v = rho * v
-    kinetic_energy = 0.5 * rho * (u*u + v*v)
-    E = p / (gamma - 1.0) + kinetic_energy
-    
-    return wp.vec4(rho, rho_u, rho_v, E)
 
 @wp.func
 def pressure(q: wp.vec4) -> wp.float32:
@@ -292,69 +272,7 @@ def compute_surface_term(
             else:
                 # --- Boundary Face ---
                 bc_type = bc_mask[e, face_idx]
-                
-                if bc_type == BC_WALL:
-                    # Slip Wall: Mirror velocity vector across the wall (remove normal component)
-                    
-                    rho = q_inner[0]
-                    rhou = q_inner[1]
-                    rhov = q_inner[2]
-                    E = q_inner[3]
-                    
-                    # Momentum dot Normal
-                    mom_dot_n = rhou * nx + rhov * ny
-                    
-                    rhou_ghost = rhou - 2.0 * mom_dot_n * nx
-                    rhov_ghost = rhov - 2.0 * mom_dot_n * ny
-                    
-                    q_outer = wp.vec4(rho, rhou_ghost, rhov_ghost, E)
-                    
-                elif bc_type == BC_FARFIELD:
-                    # Treat Farfield as Slip Wall (Symmetry) for stability on parallel boundaries.
-                    # This enforces zero normal velocity, preventing inflow/outflow instabilities
-                    # typical of grazing flow with simple extrapolation or Dirichlet BCs.
-                    
-                    rho = q_inner[0]
-                    rhou = q_inner[1]
-                    rhov = q_inner[2]
-                    E = q_inner[3]
-                    
-                    # Momentum dot Normal
-                    mom_dot_n = rhou * nx + rhov * ny
-                    
-                    # Reflected momentum: v_ghost = v - 2 * (v . n) * n
-                    rhou_ghost = rhou - 2.0 * mom_dot_n * nx
-                    rhov_ghost = rhov - 2.0 * mom_dot_n * ny
-                    
-                    q_outer = wp.vec4(rho, rhou_ghost, rhov_ghost, E)
-                
-                elif bc_type == BC_INLET:
-                    # Dirichlet (Freestream)
-                    q_outer = get_freestream_state(t, ramp_time)
-
-                elif bc_type == BC_OUTLET:
-                    # Subsonic Outlet: Fix Pressure, Extrapolate others
-                    # p_back = 1.0
-                    rho = q_inner[0]
-                    rhou = q_inner[1]
-                    rhov = q_inner[2]
-                    
-                    # Compute inner velocities to reconstruct Energy with new Pressure
-                    # Kinetic Energy
-                    # q_inner[3] is E_inner, we don't need it directly if we recompute E
-                    
-                    # E_outer = p_back / (gamma - 1) + 0.5 * (rho*u^2 + rho*v^2)
-                    # 0.5 * rho * V^2 = 0.5 * (rhou^2 + rhov^2) / rho
-                    
-                    p_back = float(1.0)
-                    kin_energy = 0.5 * (rhou*rhou + rhov*rhov) / rho
-                    E_outer = p_back / (gamma - 1.0) + kin_energy
-                    
-                    q_outer = wp.vec4(rho, rhou, rhov, E_outer)
-
-                else:
-                    # Default/Fallback
-                    q_outer = q_inner
+                q_outer = bc.apply_boundary_condition(bc_type, q_inner, nx, ny, t, ramp_time)
             
             # 1. Numerical Flux (F*)
             f_star = rusanev_flux(q_inner, q_outer, nx, ny)
