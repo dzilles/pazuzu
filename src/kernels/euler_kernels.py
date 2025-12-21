@@ -310,8 +310,23 @@ def compute_surface_term(
                     q_outer = wp.vec4(rho, rhou_ghost, rhov_ghost, E)
                     
                 elif bc_type == BC_FARFIELD:
-                    # Extrapolation (Zero-Gradient / Transmissive)
-                    q_outer = q_inner
+                    # Treat Farfield as Slip Wall (Symmetry) for stability on parallel boundaries.
+                    # This enforces zero normal velocity, preventing inflow/outflow instabilities
+                    # typical of grazing flow with simple extrapolation or Dirichlet BCs.
+                    
+                    rho = q_inner[0]
+                    rhou = q_inner[1]
+                    rhov = q_inner[2]
+                    E = q_inner[3]
+                    
+                    # Momentum dot Normal
+                    mom_dot_n = rhou * nx + rhov * ny
+                    
+                    # Reflected momentum: v_ghost = v - 2 * (v . n) * n
+                    rhou_ghost = rhou - 2.0 * mom_dot_n * nx
+                    rhov_ghost = rhov - 2.0 * mom_dot_n * ny
+                    
+                    q_outer = wp.vec4(rho, rhou_ghost, rhov_ghost, E)
                 
                 elif bc_type == BC_INLET:
                     # Dirichlet (Freestream)

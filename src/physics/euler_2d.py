@@ -234,6 +234,19 @@ class Euler2DSolver(BaseSolver):
         # Derivatives of bilinear shape functions at the center (r=0, s=0)
         dNd_r_center = 0.25 * np.array([-1, 1, 1, -1])
         dNd_s_center = 0.25 * np.array([-1, -1, 1, 1])
+
+        # Precomputed derivative vectors for faces to handle general quads correctly
+        # Face 0 (Bottom, s=-1): dN/dr at r=0, s=-1 -> [-0.5, 0.5, 0.0, 0.0]
+        dNd_r_f0 = np.array([-0.5, 0.5, 0.0, 0.0])
+        
+        # Face 1 (Right, r=1): dN/ds at r=1, s=0 -> [0.0, -0.5, 0.5, 0.0]
+        dNd_s_f1 = np.array([0.0, -0.5, 0.5, 0.0])
+        
+        # Face 2 (Top, s=1): dN/dr at r=0, s=1 -> [0.0, 0.0, 0.5, -0.5]
+        dNd_r_f2 = np.array([0.0, 0.0, 0.5, -0.5])
+        
+        # Face 3 (Left, r=-1): dN/ds at r=-1, s=0 -> [-0.5, 0.0, 0.0, 0.5]
+        dNd_s_f3 = np.array([-0.5, 0.0, 0.0, 0.5])
         
         for i in range(self.mesh.num_elements):
             v = self.mesh.vertices_host[i, :, :] 
@@ -269,23 +282,31 @@ class Euler2DSolver(BaseSolver):
             # J_face is the scaling factor (length of the edge relative to reference interval length 2)
             
             # Face 0 (bottom): s=-1, r in [-1, 1]. Tangent vector T = dx/dr. Normal N = (dy/dr, -dx/dr).
-            nx, ny = dy_dr, -dx_dr
+            dx_dr_0 = dNd_r_f0 @ v[:, 0]
+            dy_dr_0 = dNd_r_f0 @ v[:, 1]
+            nx, ny = dy_dr_0, -dx_dr_0
             J_face = np.sqrt(nx**2 + ny**2) # Length / 2
             self.face_geo_factors_host[i, 0, :] = [nx/J_face, ny/J_face, J_face]
 
             # Face 1 (right): r=1, s in [-1, 1]. Tangent T = dx/ds. Normal N = (dy/ds, -dx/ds).
-            nx, ny = dy_ds, -dx_ds
+            dx_ds_1 = dNd_s_f1 @ v[:, 0]
+            dy_ds_1 = dNd_s_f1 @ v[:, 1]
+            nx, ny = dy_ds_1, -dx_ds_1
             J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 1, :] = [nx/J_face, ny/J_face, J_face]
             
             # Face 2 (top): s=1, r in [1, -1] (reverse!). Tangent T = -dx/dr. Normal N = (-dy/dr, dx/dr).
             # This points outwards (Opposite to bottom normal direction relative to derivative)
-            nx, ny = -dy_dr, dx_dr 
+            dx_dr_2 = dNd_r_f2 @ v[:, 0]
+            dy_dr_2 = dNd_r_f2 @ v[:, 1]
+            nx, ny = -dy_dr_2, dx_dr_2 
             J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 2, :] = [nx/J_face, ny/J_face, J_face]
 
             # Face 3 (left): r=-1, s in [1, -1] (reverse!). Tangent T = -dx/ds. Normal N = (-dy/ds, dx/ds).
-            nx, ny = -dy_ds, dx_ds 
+            dx_ds_3 = dNd_s_f3 @ v[:, 0]
+            dy_ds_3 = dNd_s_f3 @ v[:, 1]
+            nx, ny = -dy_ds_3, dx_ds_3 
             J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 3, :] = [nx/J_face, ny/J_face, J_face]
 
