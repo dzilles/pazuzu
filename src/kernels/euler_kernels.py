@@ -8,6 +8,7 @@ p_floor = 1.0e-5
 BC_WALL = 1
 BC_FARFIELD = 2
 BC_INLET = 3
+BC_OUTLET = 4
 
 # --- Equation Kernels (Helper functions used by other kernels) ---
 
@@ -315,6 +316,26 @@ def compute_surface_term(
                 elif bc_type == BC_INLET:
                     # Dirichlet (Freestream)
                     q_outer = get_freestream_state(t, ramp_time)
+
+                elif bc_type == BC_OUTLET:
+                    # Subsonic Outlet: Fix Pressure, Extrapolate others
+                    # p_back = 1.0
+                    rho = q_inner[0]
+                    rhou = q_inner[1]
+                    rhov = q_inner[2]
+                    
+                    # Compute inner velocities to reconstruct Energy with new Pressure
+                    # Kinetic Energy
+                    # q_inner[3] is E_inner, we don't need it directly if we recompute E
+                    
+                    # E_outer = p_back / (gamma - 1) + 0.5 * (rho*u^2 + rho*v^2)
+                    # 0.5 * rho * V^2 = 0.5 * (rhou^2 + rhov^2) / rho
+                    
+                    p_back = float(1.0)
+                    kin_energy = 0.5 * (rhou*rhou + rhov*rhov) / rho
+                    E_outer = p_back / (gamma - 1.0) + kin_energy
+                    
+                    q_outer = wp.vec4(rho, rhou, rhov, E_outer)
 
                 else:
                     # Default/Fallback

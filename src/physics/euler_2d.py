@@ -199,6 +199,7 @@ class Euler2DSolver(BaseSolver):
             BC_WALL = 1
             BC_FARFIELD = 2
             BC_INLET = 3
+            BC_OUTLET = 4
             
             tag_to_bc = {}
             for name, bc_conf in self.config['boundaries'].items():
@@ -215,6 +216,7 @@ class Euler2DSolver(BaseSolver):
                     if bc_type == "slip_wall": tag_to_bc[tag] = BC_WALL
                     elif bc_type in ["farfield", "outflow"]: tag_to_bc[tag] = BC_FARFIELD
                     elif bc_type == "inlet": tag_to_bc[tag] = BC_INLET
+                    elif bc_type == "outlet": tag_to_bc[tag] = BC_OUTLET
             
             # Apply to mask
             for e in range(self.mesh.num_elements):

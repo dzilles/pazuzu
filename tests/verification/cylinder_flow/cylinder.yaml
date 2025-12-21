@@ -1,11 +1,11 @@
 simulation:
   type: "euler_2d"
-  t_final: 5.0
+  t_final: 50.0
   cfl: 0.05
   output_dir: "output"
   log_frequency: 20
   device: "cpu"
-  max_steps: 200
+  max_steps: 20000
   ramp_time: 1.0
 
 mesh:
@@ -22,7 +22,7 @@ boundaries:
   "Inlet":
     type: "inlet"
   "Outlet":
-    type: "farfield"
+    type: "outlet"
   "Top":
     type: "farfield"
   "Bottom":
