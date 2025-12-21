@@ -2,9 +2,19 @@ import numpy as np
 
 def vortex(x, y, t=0.0):
     """
-    2D Isentropic Vortex problem.
-    The solution is a vortex that advects diagonally across the domain.
-    Exact solution: q(x, y, t) = q_0(x - u_inf*t, y - v_inf*t)
+    Computes the exact solution for the 2D Isentropic Vortex problem at time t.
+    
+    The vortex is a common test case for Euler solvers. It consists of a mean flow
+    (u_inf, v_inf) with a superimposed perturbation that satisfies the Euler equations.
+    The vortex advects with the mean flow without changing shape.
+
+    Args:
+        x (float): Physical x-coordinate.
+        y (float): Physical y-coordinate.
+        t (float, optional): Simulation time. Defaults to 0.0.
+
+    Returns:
+        tuple: (rho, u, v, p) - Density, x-velocity, y-velocity, pressure.
     """
     gamma = 1.4
     beta = 5.0  # Vortex strength
@@ -12,7 +22,8 @@ def vortex(x, y, t=0.0):
     u_inf = 1.0
     v_inf = 1.0
     
-    # Advect coordinates back to t=0
+    # Advect coordinates back to t=0 to find the vortex position in the moving frame
+    # Exact solution property: q(x, y, t) = q_0(x - u_inf*t, y - v_inf*t)
     x0 = x - u_inf * t
     y0 = y - v_inf * t
     
@@ -37,10 +48,32 @@ def vortex(x, y, t=0.0):
 
 def uniform(x, y, t=0.0):
     """
-    Uniform flow.
+    Computes a uniform flow field state.
+
+    Args:
+        x (float): Physical x-coordinate.
+        y (float): Physical y-coordinate.
+        t (float, optional): Simulation time. Defaults to 0.0.
+
+    Returns:
+        tuple: (rho, u, v, p) with rho=1.0, u=1.0, v=0.0, p=1.0.
     """
     rho = 1.0
     u = 1.0
     v = 0.0
     p = 1.0
     return rho, u, v, p
+
+def rest(x, y, t=0.0):
+    """
+    Computes a state at rest.
+
+    Args:
+        x (float): Physical x-coordinate.
+        y (float): Physical y-coordinate.
+        t (float, optional): Simulation time. Defaults to 0.0.
+
+    Returns:
+        tuple: (rho, u, v, p) with rho=1.0, u=0.0, v=0.0, p=1.0.
+    """
+    return 1.0, 0.0, 0.0, 1.0

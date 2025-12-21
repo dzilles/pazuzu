@@ -16,6 +16,8 @@ def get_initial_condition_func(name):
         return ic.vortex
     elif name == "uniform":
         return ic.uniform
+    elif name == "rest":
+        return ic.rest
     else:
         raise ValueError(f"Unknown initial condition: {name}")
 
@@ -101,7 +103,8 @@ def main(config_path):
     
     # Instantiate Driver
     driver = TimeIntegrator(solver)
-    driver.solve(t_final=t_final, CFL=CFL, log_frequency=log_freq, writer=writer)
+    max_steps = sim_cfg.get('max_steps', None)
+    driver.solve(t_final=t_final, CFL=CFL, log_frequency=log_freq, writer=writer, max_steps=max_steps)
     
     print("Simulation finished.")
     print(f"Results saved to {output_dir}/results.h5 and .xmf")

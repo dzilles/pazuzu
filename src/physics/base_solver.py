@@ -2,7 +2,30 @@ from abc import ABC, abstractmethod
 import warp as wp
 
 class BaseSolver(ABC):
+    """
+    Abstract base class for all physics solvers.
+
+    This class defines the interface that any specific physics implementation (e.g., Euler, Navier-Stokes)
+    must adhere to. It handles the shared state initialization and provides signatures for the core
+    computational steps required by the TimeIntegrator.
+
+    Attributes:
+        mesh (Mesh): The computational mesh.
+        basis (Basis): The polynomial basis and operators.
+        device (str): The compute device ("cpu" or "cuda").
+        config (dict, optional): Configuration dictionary containing physics-specific parameters.
+        Q (wp.array): The state vector array (initialized by concrete classes).
+        rhs (wp.array): The right-hand side buffer array (initialized by concrete classes).
+    """
     def __init__(self, mesh, basis, config=None):
+        """
+        Initializes the base solver.
+
+        Args:
+            mesh (Mesh): The computational mesh.
+            basis (Basis): The DG basis functions.
+            config (dict, optional): Physics configuration dictionary. Defaults to None.
+        """
         self.mesh = mesh
         self.basis = basis
         self.device = mesh.device
@@ -14,15 +37,38 @@ class BaseSolver(ABC):
     
     @abstractmethod
     def initialize(self, initial_condition_func):
-        """Initialize the state Q."""
+        """
+        Initializes the state vector Q based on a provided function.
+
+        Args:
+            initial_condition_func (callable): A function `f(x, y)` returning primitive variables.
+        """
         pass
 
     @abstractmethod
     def compute_rhs(self, t, dt, q, rhs):
-        """Compute RHS = dQ/dt."""
+        """
+        Computes the right-hand side (RHS) of the semi-discrete equation dQ/dt = RHS(Q).
+
+        This method encapsulates the spatial discretization (volume integrals, surface fluxes).
+
+        Args:
+            t (float): Current simulation time.
+            dt (float): Current time step size.
+            q (wp.array): Input state vector.
+            rhs (wp.array): Output buffer where the computed RHS will be stored.
+        """
         pass
 
     @abstractmethod
     def calculate_dt(self, CFL):
-        """Calculate stable time step."""
+        """
+        Calculates a stable time step size based on the CFL condition.
+
+        Args:
+            CFL (float): The Courant-Friedrichs-Lewy number.
+
+        Returns:
+            float: The calculated time step size (dt).
+        """
         pass

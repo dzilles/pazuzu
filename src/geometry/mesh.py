@@ -5,7 +5,48 @@ import os
 from collections import defaultdict
 
 class Mesh:
+    """
+    Manages the computational mesh (topology and geometry).
+
+    This class handles the creation or loading of the mesh, including vertices, connectivity,
+    and geometric metrics required for the DG solver. It supports both structured Cartesian meshes
+    (generated internally) and unstructured quadrilateral meshes loaded via meshio (e.g., from Gmsh).
+
+    Attributes:
+        nx (int): Number of elements in x-direction (Cartesian only).
+        ny (int): Number of elements in y-direction (Cartesian only).
+        num_elements (int): Total number of elements in the mesh.
+        device (str): Warp compute device.
+        x_min (float): Domain minimum x-coordinate.
+        x_max (float): Domain maximum x-coordinate.
+        y_min (float): Domain minimum y-coordinate.
+        y_max (float): Domain maximum y-coordinate.
+        dx (float): Characteristic element size (used for CFL).
+        vertices (wp.array): Vertex coordinates (NumElements, 4, 2).
+        connectivity (wp.array): Neighbor connectivity (NumElements, 4).
+        boundary_tags (wp.array): Physical boundary tags per face (NumElements, 4).
+        rx, ry, sx, sy (wp.array): Inverse Jacobian matrix components.
+        J (wp.array): Jacobian determinant.
+        Js (wp.array): Surface Jacobian (scaling factors) for faces.
+        physical_groups (dict): Mapping from boundary name to integer tag.
+    """
     def __init__(self, nx=None, ny=None, x_min=0.0, x_max=1.0, y_min=0.0, y_max=1.0, filename=None, device="cuda"):
+        """
+        Initializes the Mesh.
+
+        Args:
+            nx (int, optional): Number of elements in X (for Cartesian mesh).
+            ny (int, optional): Number of elements in Y (for Cartesian mesh).
+            x_min (float, optional): Min X coordinate. Defaults to 0.0.
+            x_max (float, optional): Max X coordinate. Defaults to 1.0.
+            y_min (float, optional): Min Y coordinate. Defaults to 0.0.
+            y_max (float, optional): Max Y coordinate. Defaults to 1.0.
+            filename (str, optional): Path to a mesh file to load. Overrides nx/ny.
+            device (str, optional): Compute device ("cpu" or "cuda"). Defaults to "cuda".
+
+        Raises:
+            ValueError: If neither filename nor (nx, ny) are provided.
+        """
         self.device = device
         
         if filename and os.path.exists(filename):
@@ -51,21 +92,6 @@ class Mesh:
         
         # Surface Jacobians (scaling factors for face integration)
         # Store as (NumElements, 4) since they can vary per face in unstructured
-        # But to keep compatible with current Solver structure (1D arrays per face type?),
-        # wait, current solver uses 1D arrays Js_x, Js_y. 
-        # For unstructured, Js is different for EVERY face.
-        # We should change Js_x, Js_y to a single array `Js` of shape (NumElements, 4).
-        # For backward compatibility, we will store them but the solver kernel needs update if we want full unstructured support.
-        # CHECK: The surface kernel takes Js_x and Js_y as 1D arrays. 
-        # This implies it assumes Face 1 & 3 share metric, Face 0 & 2 share metric.
-        # THIS IS NOT TRUE for unstructured.
-        # I need to update the surface kernel too. 
-        # For now, I will allocate (NumElements, 4) and flattened or separate arrays?
-        # Let's stick to 4 separate arrays for the 4 faces to minimize Kernel signature changes if possible,
-        # OR better: make `Js` a (NumElements, 4) array.
-        
-        # Current Solver Kernel expects: Js_x (1D), Js_y (1D).
-        # I will change the Solver Kernel input to be `Js` (NumElements, 4).
         self.Js_host = np.zeros((self.num_elements, 4), dtype=np.float32)
 
         # --- Transfer to Warp ---
@@ -73,9 +99,9 @@ class Mesh:
         
         # Connectivity: Solver expects (NumElements, 4) -> NeighborID
         self.connectivity = wp.array(self.connectivity_host[:, :, 0], dtype=wp.int32, device=self.device)
+        self.connectivity_face_indices = wp.array(self.connectivity_host[:, :, 1], dtype=wp.int32, device=self.device)
         
         # Boundary Tags: (NumElements, 4). 0 = Internal, >0 = Physical Tag
-        # We need a new host array for this
         if not hasattr(self, 'boundary_tags_host'):
              self.boundary_tags_host = np.zeros((self.num_elements, 4), dtype=np.int32)
              
@@ -91,21 +117,27 @@ class Mesh:
         self.Js = wp.array(self.Js_host, dtype=wp.float32, device=self.device)
 
     def _create_cartesian_mesh(self):
+        """Generates vertices for a structured Cartesian grid."""
         for j in range(self.ny):
             for i in range(self.nx):
                 element_id = j * self.nx + i
                 x0 = self.x_min + i * self.dx
                 y0 = self.y_min + j * self.dy
                 
+                # Counter-Clockwise ordering
                 self.vertices_host[element_id, 0, :] = [x0, y0]
                 self.vertices_host[element_id, 1, :] = [x0 + self.dx, y0]
                 self.vertices_host[element_id, 2, :] = [x0 + self.dx, y0 + self.dy]
                 self.vertices_host[element_id, 3, :] = [x0, y0 + self.dy]
 
     def _create_cartesian_connectivity(self):
+        """
+        Generates connectivity and boundary tags for a structured Cartesian grid.
+        
+        Faces are ordered: 0: Bottom, 1: Right, 2: Top, 3: Left.
+        Assigns standard physical tags: 1=Bottom, 2=Right, 3=Top, 4=Left.
+        """
         self.boundary_tags_host = np.zeros((self.num_elements, 4), dtype=np.int32)
-        # Default Cartesian tags: 1=Bottom, 2=Right, 3=Top, 4=Left (matching our Gmsh test)
-        # Assuming domain [0,1]x[0,1] or similar
         
         for j in range(self.ny):
             for i in range(self.nx):
@@ -140,6 +172,15 @@ class Mesh:
                     self.boundary_tags_host[element_id, 2] = 3 # Top Tag
 
     def _load_from_file(self, filename):
+        """
+        Loads an unstructured quadrilateral mesh from a file using meshio.
+
+        Args:
+            filename (str): Path to the mesh file (e.g., .msh).
+        
+        Raises:
+            ValueError: If no quadrilateral cells are found.
+        """
         mesh = meshio.read(filename)
         
         # Store Physical Groups Mapping: Name -> Tag
@@ -174,15 +215,50 @@ class Mesh:
         for i, cell in enumerate(quads):
             self.vertices_host[i] = points_2d[cell]
 
-        # 3. Connectivity (Dual Graph)
+        # 3. Identify Boundary Edges from 'line' cells
+        # Map: tuple(sorted_nodes) -> physical_tag
+        boundary_edges = {}
+        
+        # Extract lines
+        lines = []
+        line_tags = []
+        
+        # Check where tags are stored (gmsh:physical is common)
+        # meshio structures varies: 
+        # mesh.cell_data["gmsh:physical"] is a list of arrays corresponding to mesh.cells blocks
+        
+        for i, cell_block in enumerate(mesh.cells):
+            if cell_block.type == "line":
+                data = cell_block.data
+                lines.append(data)
+                
+                # Try to get tags
+                if "gmsh:physical" in mesh.cell_data:
+                    line_tags.append(mesh.cell_data["gmsh:physical"][i])
+                else:
+                    # Fallback or different format
+                    pass
+        
+        if lines:
+            lines_concat = np.concatenate(lines) if len(lines) > 1 else lines[0]
+            tags_concat = np.concatenate(line_tags) if len(line_tags) > 1 else line_tags[0]
+            
+            for edge, tag in zip(lines_concat, tags_concat):
+                key = tuple(sorted(edge))
+                boundary_edges[key] = tag
+                
+        print(f"  Found {len(boundary_edges)} boundary edges with tags.")
+
+        # 4. Connectivity (Dual Graph)
         self.connectivity_host = -np.ones((self.num_elements, 4, 2), dtype=np.int32)
+        self.boundary_tags_host = np.zeros((self.num_elements, 4), dtype=np.int32)
         
         # Helper to identify faces: defined by sorted tuple of 2 node indices
         # Face definitions for a quad (0,1,2,3):
-        # 0: 0-1
-        # 1: 1-2
-        # 2: 2-3
-        # 3: 3-0
+        # 0: 0-1 (Bottom)
+        # 1: 1-2 (Right)
+        # 2: 2-3 (Top)
+        # 3: 3-0 (Left)
         face_defs = [(0, 1), (1, 2), (2, 3), (3, 0)]
         
         # Map: tuple(sorted_nodes) -> list of (element_id, face_idx)
@@ -204,8 +280,10 @@ class Mesh:
                 self.connectivity_host[e1, f1] = [e2, f2]
                 self.connectivity_host[e2, f2] = [e1, f1]
             elif len(connections) == 1:
-                # Boundary face - remains -1 (or handle boundary conditions later)
-                pass
+                # Boundary face
+                (e1, f1) = connections[0]
+                tag = boundary_edges.get(face_key, 0) # 0 if not found (should not happen if mesh is closed)
+                self.boundary_tags_host[e1, f1] = tag
             else:
                 print(f"Warning: Face {face_key} shared by {len(connections)} elements. Mesh might be non-manifold.")
         
@@ -214,12 +292,8 @@ class Mesh:
         # (This is a rough heuristic, max_wave_speed kernel handles local speed, but we need a length scale)
         total_area = 0.0
         for i in range(self.num_elements):
-            # Triangle 1: 0-1-2, Triangle 2: 0-2-3
             v = self.vertices_host[i]
-            # Area using Shoelace formula
-            # 0.5 * |(x1y2 - y1x2) + (x2y3 - y2x3) ...|
-            # Simplified for quad: Area = 0.5 * |(x0*y1 - y0*x1) + ...|
-            # Let's just use vector cross product of diagonals for convex quads
+            # Area using Shoelace formula / cross product for convex quads
             # d1 = v2 - v0, d2 = v3 - v1. Area = 0.5 * |d1 x d2|
             d1 = v[2] - v[0]
             d2 = v[3] - v[1]

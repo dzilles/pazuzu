@@ -4,13 +4,24 @@ import numpy as np
 gamma = 1.4
 
 def pressure(Q):
+    """
+    Computes the pressure from the conservative state vector using the ideal gas law.
+    
+    Equation of state: p = (gamma - 1) * (E - 0.5 * rho * (u^2 + v^2))
+
+    Args:
+        Q (np.array): Conservative variables [rho, rho*u, rho*v, E].
+
+    Returns:
+        np.array: The pressure.
+    """
     rho, rho_u, rho_v, E = Q
-    # Soft clip ist besser als hard clip, aber für den Anfang okay
+    # Soft clip to avoid division by zero (better than hard clip for optimization, but fine here)
     rho = np.maximum(rho, 1e-12)
     
-    # Optimierung: 0.5 * (rho_u^2 + rho_v^2) / rho ist numerisch stabiler 
-    # als 0.5 * rho * (u^2 + v^2), da u=rho_u/rho -> u^2 = rho_u^2/rho^2
-    # Das spart eine Division und ist bei kleinem rho genauer.
+    # Optimization: 0.5 * (rho_u^2 + rho_v^2) / rho is numerically more stable 
+    # than 0.5 * rho * (u^2 + v^2), as u=rho_u/rho -> u^2 = rho_u^2/rho^2
+    # This saves one division and preserves accuracy for small rho.
     kinetic_energy = 0.5 * (rho_u**2 + rho_v**2) / rho
     p_val = (gamma - 1) * (E - kinetic_energy)
     
@@ -18,8 +29,16 @@ def pressure(Q):
 
 def euler_fluxes(Q):
     """
-    Computes both F and G at once to save unpack operations/pressure calcs.
-    Returns F, G
+    Computes both Euler Flux vectors F(Q) and G(Q) simultaneously.
+    
+    F(Q) = [rho*u, rho*u^2 + p, rho*u*v, (E+p)*u]
+    G(Q) = [rho*v, rho*v*u, rho*v^2 + p, (E+p)*v]
+
+    Args:
+        Q (np.array): Conservative variables.
+
+    Returns:
+        tuple: (F, G) numpy arrays containing the fluxes in x and y directions.
     """
     rho, rho_u, rho_v, E = Q
     rho = np.maximum(rho, 1e-12)
@@ -33,7 +52,7 @@ def euler_fluxes(Q):
     # Flux F (x-dir)
     f1 = rho_u
     f2 = rho_u * u + p
-    f3 = rho_u * v     # rho_v * u ist das gleiche wie rho_u * v
+    f3 = rho_u * v     # rho_v * u is equivalent to rho_u * v
     f4 = (E + p) * u
     
     # Flux G (y-dir)
@@ -47,8 +66,20 @@ def euler_fluxes(Q):
     return F, G
 
 def get_max_eigenvalue(Q, normal_vector):
+    """
+    Computes the maximum eigenvalue (wave speed) of the system in a given normal direction.
+    
+    lambda_max = |u_n| + c
+
+    Args:
+        Q (np.array): Conservative variables.
+        normal_vector (tuple): (nx, ny) components of the normal vector.
+
+    Returns:
+        np.array: The maximum wave speed.
+    """
     rho = Q[0]
-    # Vermeide Division durch fast-Null
+    # Avoid division by near-zero
     rho = np.maximum(rho, 1e-12)
     p = pressure(Q)
     
@@ -64,12 +95,22 @@ def get_max_eigenvalue(Q, normal_vector):
 
 def lax_friedrichs_flux(q_l, q_r, normal_vector):
     """
-    Computes the Lax-Friedrichs numerical flux projected on the normal.
+    Computes the Lax-Friedrichs / Rusanov numerical flux projected on the normal.
+    
+    F* = 0.5 * (F_L + F_R) - 0.5 * alpha * (Q_R - Q_L)
+
+    Args:
+        q_l (np.array): State on the left side of the interface.
+        q_r (np.array): State on the right side of the interface.
+        normal_vector (tuple): Normal vector (nx, ny).
+
+    Returns:
+        np.array: The numerical flux vector.
     """
     nx, ny = normal_vector
     
     # Compute fluxes
-    # Wir nutzen hier die kombinierte Funktion, um Rechenzeit zu sparen
+    # We use the combined function to save computation time
     F_l, G_l = euler_fluxes(q_l)
     F_r, G_r = euler_fluxes(q_r)
     
@@ -84,8 +125,8 @@ def lax_friedrichs_flux(q_l, q_r, normal_vector):
     # Global max wave speed at the interface
     alpha = np.maximum(lambda_l, lambda_r)
     
-    # Broadcasting Safety: alpha auf (1, N) bringen falls q (4, N) ist
-    # Das verhindert Fehler, falls die Dimensionen mal drehen
+    # Broadcasting Safety: ensure alpha has shape (1, N) if q is (4, N)
+    # This prevents errors if dimensions are flipped
     if alpha.ndim == 1:
         alpha_b = alpha[None, :] 
     else:
@@ -100,6 +141,12 @@ def lax_friedrichs_flux(q_l, q_r, normal_vector):
 def primitive_to_conservative(prim):
     """
     Converts primitive variables [rho, u, v, p] to conservative variables [rho, rho*u, rho*v, E].
+
+    Args:
+        prim (np.array): Primitive variables.
+
+    Returns:
+        np.array: Conservative variables.
     """
     rho, u, v, p = prim
     rho_u = rho * u
@@ -111,7 +158,13 @@ def primitive_to_conservative(prim):
 def conservative_to_primitive(Q):
     """
     Converts conservative variables [rho, rho*u, rho*v, E] back to primitive [rho, u, v, p].
-    Used for visualization.
+    Used for visualization and post-processing.
+
+    Args:
+        Q (np.array): Conservative variables.
+
+    Returns:
+        np.array: Primitive variables.
     """
     rho, rho_u, rho_v, E = Q
     
@@ -120,6 +173,6 @@ def conservative_to_primitive(Q):
     
     u = rho_u / rho_safe
     v = rho_v / rho_safe
-    p_val = pressure(Q) # Nutzt die bereits vorhandene pressure-Funktion
+    p_val = pressure(Q) # Uses the existing pressure function
     
     return np.array([rho, u, v, p_val])
