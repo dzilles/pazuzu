@@ -1,14 +1,18 @@
 simulation:
   type: "euler_2d"
-  t_final: 1.0
-  cfl: 0.05
+  t_final: 25.0
+  cfl: 0.1
   output_dir: "output"
-  log_frequency: 10
+  log_frequency: 1000
   device: "cpu"
+  max_steps: 500000
 
 mesh:
   type: "unstructured"
   filename: "box.msh"
+  periodic_pairs:
+    - ["Left", "Right", "x"]
+    - ["Top", "Bottom", "y"]
 
 numerical:
   polynomial_degree: 4
@@ -17,6 +21,8 @@ initial_condition:
   name: "vortex"
 
 boundaries:
+  # Tags 1,2,3,4 are now handled by periodic_pairs and will be cleared from bc_mask
+  # But we can keep them here, the solver setup will overwrite/ignore them if they are periodic.
   "Left":
     type: "farfield"
   "Right":

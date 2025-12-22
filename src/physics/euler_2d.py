@@ -185,7 +185,9 @@ class Euler2DSolver(BaseSolver):
             max_speed = 1.0 
 
         # Characteristic length / Max Speed
-        dt = CFL * self.mesh.dx / max_speed
+        # Effective grid size for stability (scales with 1/N^2)
+        h_eff = self.mesh.dx * (self.basis.min_node_dist / 2.0)
+        dt = CFL * h_eff / max_speed
         return dt
 
     def _setup_boundary_conditions(self):

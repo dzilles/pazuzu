@@ -263,9 +263,9 @@ def compute_surface_term(
                 # --- Interior Face ---
                 neighbor_face = neighbor_face_indices[e, face_idx]
                 
-                # Assume standard conforming mesh orientation (reversed parameterization)
-                # My node k corresponds to neighbor node (Nfp - 1 - k)
-                neighbor_k = Nfp - 1 - k
+                # Assume standard conforming mesh orientation
+                # Node ordering should match for aligned meshes (k -> k)
+                neighbor_k = k 
                 neighbor_node_idx = face_map[neighbor_face, neighbor_k]
                 
                 q_outer = q[neighbor_e, neighbor_node_idx]

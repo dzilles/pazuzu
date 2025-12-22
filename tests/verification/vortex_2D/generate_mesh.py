@@ -28,10 +28,10 @@ def generate_mesh(filename):
     s = gmsh.model.geo.addPlaneSurface([cl])
 
     # Transfinite mesh to get perfect quads
-    gmsh.model.geo.mesh.setTransfiniteCurve(l1, 21) # 20 elements -> 21 nodes
-    gmsh.model.geo.mesh.setTransfiniteCurve(l2, 21)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l3, 21)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l4, 21)
+    gmsh.model.geo.mesh.setTransfiniteCurve(l1, 101) # 100 elements -> 101 nodes
+    gmsh.model.geo.mesh.setTransfiniteCurve(l2, 101)
+    gmsh.model.geo.mesh.setTransfiniteCurve(l3, 101)
+    gmsh.model.geo.mesh.setTransfiniteCurve(l4, 101)
     
     gmsh.model.geo.mesh.setTransfiniteSurface(s)
     gmsh.model.geo.mesh.setRecombine(2, s) # Recombine triangles into quads

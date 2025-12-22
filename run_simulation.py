@@ -74,6 +74,33 @@ def main(config_path):
     else:
         raise ValueError(f"Unknown mesh type: {mesh_cfg['type']}")
 
+    # --- Periodic BC Setup ---
+    if 'periodic_pairs' in mesh_cfg:
+        print("Applying Periodic Boundary Conditions...")
+        for pair in mesh_cfg['periodic_pairs']:
+            # Expecting [Tag1, Tag2, Axis]
+            if len(pair) != 3:
+                print(f"  Warning: Invalid periodic pair format: {pair}. Expected [Tag1, Tag2, Axis].")
+                continue
+                
+            t1_raw, t2_raw, axis = pair
+            
+            # Helper to resolve tag name to ID
+            def resolve_tag(raw):
+                if isinstance(raw, int): return raw
+                if hasattr(mesh, 'physical_groups') and raw in mesh.physical_groups:
+                    return mesh.physical_groups[raw]
+                try: return int(raw)
+                except: return -1
+            
+            t1 = resolve_tag(t1_raw)
+            t2 = resolve_tag(t2_raw)
+            
+            if t1 == -1 or t2 == -1:
+                print(f"  Warning: Could not resolve tags for periodic pair: {pair}")
+            else:
+                mesh.apply_periodic_condition(t1, t2, axis)
+
     # --- Basis Setup ---
     print(f"Initializing Basis (Poly Degree N={polynomial_degree})...")
     basis = Basis(polynomial_degree=polynomial_degree, device=device)
@@ -91,7 +118,12 @@ def main(config_path):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
-    writer = HDF5Writer(os.path.join(output_dir, "results.h5"), mesh)
+    writer = HDF5Writer(
+        os.path.join(output_dir, "results.h5"), 
+        mesh,
+        basis=solver.basis,
+        node_coords=(solver.x_host, solver.y_host)
+    )
 
     # Save Initial State
     print("Saving initial state...")

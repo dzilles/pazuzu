@@ -49,12 +49,15 @@ def verify():
         centroids = np.mean(element_coords, axis=1) # (N_elems, 3)
         
         # Load Final Step Data
-        # Find last step
-        steps = sorted([k for k in f['data'].keys() if k.startswith('step_')])
+        # Find last step (numerical sort)
+        steps = [k for k in f['data'].keys() if k.startswith('step_')]
         if not steps:
             print("No steps found in output file.")
             sys.exit(1)
             
+        # Sort by integer suffix
+        steps.sort(key=lambda x: int(x.split('_')[1]))
+        
         last_step = steps[-1]
         time = f['data'][last_step].attrs['time']
         print(f"Verifying step: {last_step} at t={time:.4f}")

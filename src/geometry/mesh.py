@@ -303,3 +303,107 @@ class Mesh:
         avg_area = total_area / self.num_elements
         self.dx = np.sqrt(avg_area) # Characteristic length
         print(f"  Approximate element size (dx): {self.dx:.4e}")
+
+    def apply_periodic_condition(self, tag1, tag2, axis, tol=1e-5):
+        """
+        Applies periodic boundary conditions by linking faces with tag1 to faces with tag2.
+        
+        Args:
+            tag1 (int): Physical tag of the first boundary (e.g., Left).
+            tag2 (int): Physical tag of the second boundary (e.g., Right).
+            axis (str): The axis of periodicity ('x' or 'y'). Used to ignore the coordinate
+                        along the period for matching.
+        """
+        print(f"Applying Periodic BC: Tag {tag1} <-> Tag {tag2} (Axis {axis})")
+        
+        # 1. Collect faces for each tag
+        # List of (element_idx, face_idx, centroid_coord_to_match)
+        faces1 = []
+        faces2 = []
+        
+        # Helper to get face centroid (approximate for matching)
+        def get_face_centroid(e, f):
+            # Face vertices
+            # Connectivity doesn't give vertices directly, need to infer from element
+            # Standard order: 0:0-1, 1:1-2, 2:2-3, 3:3-0
+            v = self.vertices_host[e]
+            if f == 0:   p1, p2 = v[0], v[1]
+            elif f == 1: p1, p2 = v[1], v[2]
+            elif f == 2: p1, p2 = v[2], v[3]
+            elif f == 3: p1, p2 = v[3], v[0]
+            
+            center = (p1 + p2) * 0.5
+            return center
+
+        for e in range(self.num_elements):
+            for f in range(4):
+                tag = self.boundary_tags_host[e, f]
+                if tag == tag1 or tag == tag2:
+                    center = get_face_centroid(e, f)
+                    
+                    # If periodic in X, we match based on Y (and vice versa)
+                    match_coord = center[1] if axis == 'x' else center[0]
+                    
+                    item = (e, f, match_coord)
+                    if tag == tag1: faces1.append(item)
+                    else: faces2.append(item)
+        
+        print(f"  Found {len(faces1)} faces for Tag {tag1} and {len(faces2)} for Tag {tag2}.")
+        
+        if len(faces1) != len(faces2):
+            print("  Warning: Number of faces do not match! Periodicity might be incomplete.")
+        
+        # 2. Match and Link
+        # Sort by match coordinate to make matching O(N log N) or simple O(N) linear scan
+        faces1.sort(key=lambda x: x[2])
+        faces2.sort(key=lambda x: x[2])
+        
+        linked_count = 0
+        
+        # Simple greedy matching (assuming sorted)
+        # For robust matching, we might need a KD-tree or similar, but 1D sort is fine here.
+        idx2 = 0
+        for e1, f1, coord1 in faces1:
+            # Find closest in faces2
+            best_idx = -1
+            min_dist = float('inf')
+            
+            # Search around current index (optimization)
+            # Since they are sorted, we can advance idx2
+            while idx2 < len(faces2) and faces2[idx2][2] < coord1 - tol:
+                idx2 += 1
+            
+            # Check a window
+            start_search = max(0, idx2 - 5)
+            end_search = min(len(faces2), idx2 + 10)
+            
+            for i in range(start_search, end_search):
+                dist = abs(faces2[i][2] - coord1)
+                if dist < min_dist:
+                    min_dist = dist
+                    best_idx = i
+            
+            if min_dist < tol:
+                e2, f2, _ = faces2[best_idx]
+                
+                # Link them!
+                # Update Connectivity (Dual Graph)
+                # Store (NeighborID, NeighborFaceID)
+                # Note: connectivity_host stores [neighbor_elem, neighbor_face_index]
+                self.connectivity_host[e1, f1] = [e2, f2]
+                self.connectivity_host[e2, f2] = [e1, f1]
+                
+                # Clear Boundary Tags (Mark as Internal)
+                self.boundary_tags_host[e1, f1] = 0
+                self.boundary_tags_host[e2, f2] = 0
+                
+                linked_count += 1
+            else:
+                print(f"  Warning: No match found for Face {f1} of Element {e1} at coord {coord1}")
+
+        print(f"  Linked {linked_count} periodic pairs.")
+        
+        # 3. Update Device Arrays
+        self.connectivity = wp.array(self.connectivity_host[:, :, 0], dtype=wp.int32, device=self.device)
+        self.connectivity_face_indices = wp.array(self.connectivity_host[:, :, 1], dtype=wp.int32, device=self.device)
+        self.boundary_tags = wp.array(self.boundary_tags_host, dtype=wp.int32, device=self.device)
