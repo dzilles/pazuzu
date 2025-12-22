@@ -69,18 +69,18 @@ def apply_farfield(q_inner: wp.vec4, nx: wp.float32, ny: wp.float32) -> wp.vec4:
     """
     Applies Farfield / Outflow boundary condition.
     
-    Current implementation treats Farfield as Slip Wall (Symmetry) for stability 
-    on parallel boundaries (preventing grazing flow instabilities).
+    Uses 0th order extrapolation (q_outer = q_inner). 
+    This is non-reflective and allows flow to exit, preventing wall-shock instabilities
+    for the vortex test case.
     
     Args:
         q_inner (wp.vec4): State inside.
         nx, ny (float): Normal vector.
         
     Returns:
-        wp.vec4: Ghost state.
+        wp.vec4: Ghost state (extrapolated).
     """
-    # Use Slip Wall logic for stability
-    return apply_slip_wall(q_inner, nx, ny)
+    return q_inner
 
 @wp.func
 def apply_inlet(t: wp.float32, ramp_time: wp.float32) -> wp.vec4:
