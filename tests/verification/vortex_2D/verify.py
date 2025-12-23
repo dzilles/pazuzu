@@ -64,10 +64,27 @@ def verify():
         
         rho_num = f['data'][last_step]['rho'][:]
         
-        # Calculate Analytical Solution at Centroids
-        # Centroids are in 3D (z=0), we take x,y
-        x = centroids[:, 0]
-        y = centroids[:, 1]
+        # Determine if data is Nodal (Point) or Cell-Average (Centroid)
+        # Low-order: rho is (N_elems,), points is (N_elems*4, 3), centroids is (N_elems, 3). Matches Centroids.
+        # High-order: rho is (N_nodes,), points is (N_nodes, 3). Matches Points.
+        
+        if rho_num.shape[0] == points.shape[0]:
+            print(f"Detected Nodal Data (High-Order). N={rho_num.shape[0]}")
+            # Calculate at Points (Nodes)
+            x = points[:, 0]
+            y = points[:, 1]
+        elif rho_num.shape[0] == centroids.shape[0]:
+            print(f"Detected Cell Data (Low-Order). N={rho_num.shape[0]}")
+            # Calculate at Centroids
+            x = centroids[:, 0]
+            y = centroids[:, 1]
+        else:
+            print(f"Error: Data shape {rho_num.shape} matches neither Points {points.shape} nor Centroids {centroids.shape}.")
+            # Fallback (legacy/debugging)
+            if rho_num.shape[0] == 10000 and centroids.shape[0] == 6400:
+                 print("Warning: Detected known mismatch scenario. Mesh file might be stale.")
+            
+            sys.exit(1)
         
         # Vectorized call to vortex
         rho_ana, _, _, _ = vortex(x, y, t=time)

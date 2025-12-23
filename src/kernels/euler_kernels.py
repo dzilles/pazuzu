@@ -133,10 +133,10 @@ def compute_volume_term(
     rhs: wp.array(dtype=wp.vec4, ndim=2),    # Output RHS
     Dr: wp.array(dtype=wp.float32, ndim=2),  # Differentiation Matrix r
     Ds: wp.array(dtype=wp.float32, ndim=2),  # Differentiation Matrix s
-    rx: wp.array(dtype=wp.float32, ndim=1),  # Metric dr/dx
-    ry: wp.array(dtype=wp.float32, ndim=1),  # Metric dr/dy
-    sx: wp.array(dtype=wp.float32, ndim=1),  # Metric ds/dx
-    sy: wp.array(dtype=wp.float32, ndim=1),  # Metric ds/dy
+    rx: wp.array(dtype=wp.float32, ndim=2),  # Metric dr/dx (NumElems, Np)
+    ry: wp.array(dtype=wp.float32, ndim=2),  # Metric dr/dy (NumElems, Np)
+    sx: wp.array(dtype=wp.float32, ndim=2),  # Metric ds/dx (NumElems, Np)
+    sy: wp.array(dtype=wp.float32, ndim=2),  # Metric ds/dy (NumElems, Np)
     Np: wp.int32                             # Number of points per element
 ):
     """
@@ -154,19 +154,19 @@ def compute_volume_term(
         rhs (wp.array): Right-hand side accumulation array.
         Dr (wp.array): Differentiation matrix for reference coordinate r.
         Ds (wp.array): Differentiation matrix for reference coordinate s.
-        rx (wp.array): Metric term dr/dx per element.
-        ry (wp.array): Metric term dr/dy per element.
-        sx (wp.array): Metric term ds/dx per element.
-        sy (wp.array): Metric term ds/dy per element.
+        rx (wp.array): Metric term dr/dx per element per node.
+        ry (wp.array): Metric term dr/dy per element per node.
+        sx (wp.array): Metric term ds/dx per element per node.
+        sy (wp.array): Metric term ds/dy per element per node.
         Np (int): Number of nodes per element.
     """
     e, i = wp.tid() # Element e, Node i
 
-    # Load Metrics for this element (constant for affine elements)
-    dr_dx = rx[e]
-    dr_dy = ry[e]
-    ds_dx = sx[e]
-    ds_dy = sy[e]
+    # Load Metrics for this element and node
+    dr_dx = rx[e, i]
+    dr_dy = ry[e, i]
+    ds_dx = sx[e, i]
+    ds_dy = sy[e, i]
 
     dF_dr = wp.vec4(0.0)
     dF_ds = wp.vec4(0.0)
@@ -209,7 +209,7 @@ def compute_surface_term(
     face_map: wp.array(dtype=wp.int32, ndim=2),# (4, Nfp) -> Node Indices on faces
     LIFT: wp.array(dtype=wp.float32, ndim=2),  # (Np, 4*Nfp) Lift Matrix
     face_geo_factors: wp.array(dtype=wp.float32, ndim=3), # (NumElements, 4, 3) -> nx, ny, J_surf
-    J: wp.array(dtype=wp.float32, ndim=1),     # Volume Jacobian
+    J: wp.array(dtype=wp.float32, ndim=2),     # Volume Jacobian (NumElems, Np)
     bc_mask: wp.array(dtype=wp.int32, ndim=2), # (NumElements, 4) -> BC Type ID
     Nfp: wp.int32,                             # Number of face points
     t: wp.float32,                             # Current simulation time
@@ -230,15 +230,11 @@ def compute_surface_term(
         face_map (wp.array): Map from face index to local node indices.
         LIFT (wp.array): Lift operator matrix.
         face_geo_factors (wp.array): Geometric factors for faces (normals, surface Jacobian).
-        J (wp.array): Volume Jacobian determinant per element.
+        J (wp.array): Volume Jacobian determinant per element per node.
         bc_mask (wp.array): Boundary condition type ID per face.
         Nfp (int): Number of face points.
     """
     e = wp.tid() # One thread per element
-
-    # Pre-load Volume Jacobian
-    vol_J = J[e]
-    inv_J = 1.0 / vol_J
 
     # Loop over all 4 faces of the quadrilateral
     for face_idx in range(4):
@@ -288,8 +284,12 @@ def compute_surface_term(
             
             for i in range(q.shape[1]): # Iterate over all volume nodes (Np)
                 lift_val = LIFT[i, lift_col]
+                
+                # Get Volume Jacobian at this specific volume node i
+                vol_J = J[e, i]
+                
                 # Add to RHS: 1/J * LIFT * Jump
-                val = lift_val * flux_jump * inv_J
+                val = lift_val * flux_jump / vol_J
                 
                 wp.atomic_add(rhs, e, i, val)
 

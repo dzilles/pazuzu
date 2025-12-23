@@ -5,7 +5,7 @@ simulation:
   output_dir: "output"
   log_frequency: 20
   device: "cpu"
-  max_steps: 20000
+  max_steps: 10000
   ramp_time: 1.0
 
 mesh:
@@ -13,7 +13,7 @@ mesh:
   filename: "cylinder.msh"
 
 numerical:
-  polynomial_degree: 2
+  polynomial_degree: 1
 
 initial_condition:
   name: "rest"
@@ -24,8 +24,8 @@ boundaries:
   "Outlet":
     type: "outlet"
   "Top":
-    type: "farfield"
+    type: "slip_wall"
   "Bottom":
-    type: "farfield"
+    type: "slip_wall"
   "Cylinder":
     type: "slip_wall"

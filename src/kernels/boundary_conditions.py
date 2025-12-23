@@ -7,9 +7,10 @@ gamma = 1.4
 # --- Boundary Condition Type Constants ---
 BC_INTERNAL = 0
 BC_WALL = 1      # Slip Wall (Euler)
-BC_FARFIELD = 2  # Farfield / Symmetry
+BC_FARFIELD = 2  # Farfield (Freestream / Characteristic)
 BC_INLET = 3     # Inlet (Freestream)
 BC_OUTLET = 4    # Subsonic Outlet
+BC_EXTRAPOLATION = 5 # Zero-Gradient / Outflow
 
 # --- Helper Functions ---
 
@@ -65,9 +66,9 @@ def apply_slip_wall(q_inner: wp.vec4, nx: wp.float32, ny: wp.float32) -> wp.vec4
     return wp.vec4(rho, rhou_ghost, rhov_ghost, E)
 
 @wp.func
-def apply_farfield(q_inner: wp.vec4, nx: wp.float32, ny: wp.float32) -> wp.vec4:
+def apply_extrapolation(q_inner: wp.vec4) -> wp.vec4:
     """
-    Applies Farfield / Outflow boundary condition.
+    Applies Extrapolation / Outflow boundary condition.
     
     Uses 0th order extrapolation (q_outer = q_inner). 
     This is non-reflective and allows flow to exit, preventing wall-shock instabilities
@@ -75,12 +76,39 @@ def apply_farfield(q_inner: wp.vec4, nx: wp.float32, ny: wp.float32) -> wp.vec4:
     
     Args:
         q_inner (wp.vec4): State inside.
-        nx, ny (float): Normal vector.
         
     Returns:
         wp.vec4: Ghost state (extrapolated).
     """
     return q_inner
+
+@wp.func
+def apply_farfield(q_inner: wp.vec4, nx: wp.float32, ny: wp.float32, t: wp.float32, ramp_time: wp.float32) -> wp.vec4:
+    """
+    Applies Characteristic Farfield boundary condition.
+    
+    Checks the direction of the flow relative to the boundary normal.
+    - If Outflow (u.n > 0): Extrapolate inner state (Zero-Gradient).
+    - If Inflow (u.n < 0): Impose Freestream conditions.
+    
+    This is a simplified 0th-order Riemann boundary condition robust for subsonic/transonic flows.
+    """
+    rho = q_inner[0]
+    # Protect against vacuum
+    if rho < 1e-6:
+        return get_freestream_state(t, ramp_time)
+        
+    u = q_inner[1] / rho
+    v = q_inner[2] / rho
+    
+    vn = u * nx + v * ny
+    
+    if vn > 0.0:
+        # Outflow: Extrapolate
+        return q_inner
+    else:
+        # Inflow: Freestream
+        return get_freestream_state(t, ramp_time)
 
 @wp.func
 def apply_inlet(t: wp.float32, ramp_time: wp.float32) -> wp.vec4:
@@ -138,10 +166,12 @@ def apply_boundary_condition(
     if bc_type == BC_WALL:
         q_outer = apply_slip_wall(q_inner, nx, ny)
     elif bc_type == BC_FARFIELD:
-        q_outer = apply_farfield(q_inner, nx, ny)
+        q_outer = apply_farfield(q_inner, nx, ny, t, ramp_time)
     elif bc_type == BC_INLET:
         q_outer = apply_inlet(t, ramp_time)
     elif bc_type == BC_OUTLET:
         q_outer = apply_outlet(q_inner)
+    elif bc_type == BC_EXTRAPOLATION:
+        q_outer = apply_extrapolation(q_inner)
         
     return q_outer

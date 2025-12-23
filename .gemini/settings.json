@@ -1,5 +1,7 @@
 {
-  "model": "gemini-3-pro-latest",
+  "model": {
+    "name": "gemini-3-pro-latest"
+  },
   "temperature": 0.2,
   "top_p": 0.95,
   "system_instruction": "You are an expert in High-Performance Scientific Computing (HPC) using Python and Nvidia Warp. You write strongly typed, GPU-optimized code. You strictly adhere to the architecture guidelines provided in Agents.md.",

@@ -1,7 +1,7 @@
 simulation:
   type: "euler_2d"
   t_final: 25.0
-  cfl: 0.1
+  cfl: 0.5
   output_dir: "output"
   log_frequency: 1000
   device: "cpu"
@@ -24,10 +24,10 @@ boundaries:
   # Tags 1,2,3,4 are now handled by periodic_pairs and will be cleared from bc_mask
   # But we can keep them here, the solver setup will overwrite/ignore them if they are periodic.
   "Left":
-    type: "farfield"
+    type: "outflow"
   "Right":
-    type: "farfield"
+    type: "outflow"
   "Top":
-    type: "farfield"
+    type: "outflow"
   "Bottom":
-    type: "farfield"
+    type: "outflow"

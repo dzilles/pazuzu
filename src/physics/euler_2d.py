@@ -44,7 +44,7 @@ class Euler2DSolver(BaseSolver):
         
         # --- Host-side data (for setup) ---
         # Volume metrics: dx/dr, dx/ds, dy/dr, dy/ds, J
-        self.geo_factors_host = np.zeros((mesh.num_elements, 5), dtype=np.float32)
+        self.geo_factors_host = np.zeros((mesh.num_elements, basis.Np, 5), dtype=np.float32)
         # Face metrics: nx, ny, J_surf
         self.face_geo_factors_host = np.zeros((mesh.num_elements, 4, 3), dtype=np.float32)
         # Physical coordinates
@@ -199,9 +199,10 @@ class Euler2DSolver(BaseSolver):
         
         if self.config and 'boundaries' in self.config:
             BC_WALL = 1
-            BC_FARFIELD = 2
+            BC_FARFIELD = 2      # Freestream / Characteristic
             BC_INLET = 3
             BC_OUTLET = 4
+            BC_EXTRAPOLATION = 5 # 0th Order Extrapolation
             
             tag_to_bc = {}
             for name, bc_conf in self.config['boundaries'].items():
@@ -216,7 +217,8 @@ class Euler2DSolver(BaseSolver):
                 if tag != -1:
                     bc_type = bc_conf.get('type')
                     if bc_type == "slip_wall": tag_to_bc[tag] = BC_WALL
-                    elif bc_type in ["farfield", "outflow"]: tag_to_bc[tag] = BC_FARFIELD
+                    elif bc_type == "farfield": tag_to_bc[tag] = BC_FARFIELD
+                    elif bc_type in ["outflow", "extrapolation"]: tag_to_bc[tag] = BC_EXTRAPOLATION
                     elif bc_type == "inlet": tag_to_bc[tag] = BC_INLET
                     elif bc_type == "outlet": tag_to_bc[tag] = BC_OUTLET
             
@@ -225,87 +227,135 @@ class Euler2DSolver(BaseSolver):
                 for f in range(4):
                     tag = self.mesh.boundary_tags_host[e, f]
                     if tag > 0:
-                        # Default to Farfield if tag exists but type not specified
+                        # Default to Farfield (Freestream) if tag exists but type not specified
                         self.bc_mask_host[e, f] = tag_to_bc.get(tag, BC_FARFIELD)
 
     def _calculate_geometric_factors(self):
         """
         Calculates geometric metrics (Jacobians) for all elements.
-        Currently assumes affine (linear) quadrilateral elements.
+        Computes metrics at every node to support general unstructured quadrilaterals.
         """
-        # Derivatives of bilinear shape functions at the center (r=0, s=0)
-        dNd_r_center = 0.25 * np.array([-1, 1, 1, -1])
-        dNd_s_center = 0.25 * np.array([-1, -1, 1, 1])
+        # Get reference nodes (r, s) for the basis
+        # Shape: (Np, 2)
+        nodes_2d = self.basis.nodes_2d.numpy()
+        r = nodes_2d[:, 0]
+        s = nodes_2d[:, 1]
+        
+        # Derivatives of bilinear shape functions w.r.t r and s at all Np nodes
+        # Shape functions:
+        # N0 = 0.25(1-r)(1-s)
+        # N1 = 0.25(1+r)(1-s)
+        # N2 = 0.25(1+r)(1+s)
+        # N3 = 0.25(1-r)(1+s)
+        
+        # dN/dr
+        # dN0_dr = -0.25(1-s)
+        # dN1_dr =  0.25(1-s)
+        # dN2_dr =  0.25(1+s)
+        # dN3_dr = -0.25(1+s)
+        
+        # dN/ds
+        # dN0_ds = -0.25(1-r)
+        # dN1_ds = -0.25(1+r)
+        # dN2_ds =  0.25(1+r)
+        # dN3_ds =  0.25(1-r)
+        
+        # Precompute shape function derivatives at all nodes
+        # Shape: (Np, 4)
+        dN_dr = np.zeros((self.basis.Np, 4))
+        dN_ds = np.zeros((self.basis.Np, 4))
+        
+        dN_dr[:, 0] = -0.25 * (1 - s)
+        dN_dr[:, 1] =  0.25 * (1 - s)
+        dN_dr[:, 2] =  0.25 * (1 + s)
+        dN_dr[:, 3] = -0.25 * (1 + s)
+        
+        dN_ds[:, 0] = -0.25 * (1 - r)
+        dN_ds[:, 1] = -0.25 * (1 + r)
+        dN_ds[:, 2] =  0.25 * (1 + r)
+        dN_ds[:, 3] =  0.25 * (1 - r)
 
-        # Precomputed derivative vectors for faces to handle general quads correctly
+        # Derivatives for face normals (still constant per face for bilinear elements)
         # Face 0 (Bottom, s=-1): dN/dr at r=0, s=-1 -> [-0.5, 0.5, 0.0, 0.0]
         dNd_r_f0 = np.array([-0.5, 0.5, 0.0, 0.0])
-        
         # Face 1 (Right, r=1): dN/ds at r=1, s=0 -> [0.0, -0.5, 0.5, 0.0]
         dNd_s_f1 = np.array([0.0, -0.5, 0.5, 0.0])
-        
         # Face 2 (Top, s=1): dN/dr at r=0, s=1 -> [0.0, 0.0, 0.5, -0.5]
         dNd_r_f2 = np.array([0.0, 0.0, 0.5, -0.5])
-        
         # Face 3 (Left, r=-1): dN/ds at r=-1, s=0 -> [-0.5, 0.0, 0.0, 0.5]
         dNd_s_f3 = np.array([-0.5, 0.0, 0.0, 0.5])
         
+        # Allocate/Reset Mesh Metric Arrays (Host)
+        # These now need to be (NumElements, Np)
+        self.mesh.rx_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=np.float32)
+        self.mesh.ry_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=np.float32)
+        self.mesh.sx_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=np.float32)
+        self.mesh.sy_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=np.float32)
+        self.mesh.J_host  = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=np.float32)
+
         for i in range(self.mesh.num_elements):
             v = self.mesh.vertices_host[i, :, :] 
-            dx_dr = dNd_r_center @ v[:, 0]
-            dx_ds = dNd_s_center @ v[:, 0]
-            dy_dr = dNd_r_center @ v[:, 1]
-            dy_ds = dNd_s_center @ v[:, 1]
             
-            # Jacobian Determinant J = det(dx/dr dx/ds; dy/dr dy/ds)
-            # Actually J = dx/dr * dy/ds - dx/ds * dy/dr
+            # Compute Jacobians at all Np nodes
+            # x = sum(N_k * x_k) -> dx/dr = sum(dN_k/dr * x_k)
+            # v[:, 0] is x-coords of vertices (4,)
+            # dN_dr is (Np, 4)
+            # dx_dr becomes (Np,)
+            dx_dr = dN_dr @ v[:, 0]
+            dx_ds = dN_ds @ v[:, 0]
+            dy_dr = dN_dr @ v[:, 1]
+            dy_ds = dN_ds @ v[:, 1]
+            
+            # Jacobian Determinant J = dx/dr * dy/ds - dx/ds * dy/dr
             J = dx_dr * dy_ds - dx_ds * dy_dr
-            self.mesh.J_host[i] = J
+            self.mesh.J_host[i, :] = J
             
             # Inverse Jacobian components
-            dr_dx =  dy_ds / J
-            dr_dy = -dx_ds / J
-            ds_dx = -dy_dr / J
-            ds_dy =  dx_dr / J
+            # dr/dx =  dy/ds / J
+            # dr/dy = -dx/ds / J
+            # ds/dx = -dy/dr / J
+            # ds/dy =  dx/dr / J
             
-            self.mesh.rx_host[i] = dr_dx
-            self.mesh.ry_host[i] = dr_dy
-            self.mesh.sx_host[i] = ds_dx
-            self.mesh.sy_host[i] = ds_dy
+            # Avoid division by zero (though J should be positive for valid meshes)
+            # J_inv = 1.0 / J
+            
+            self.mesh.rx_host[i, :] =  dy_ds / J
+            self.mesh.ry_host[i, :] = -dx_ds / J
+            self.mesh.sx_host[i, :] = -dy_dr / J
+            self.mesh.sy_host[i, :] =  dx_dr / J
 
-            self.geo_factors_host[i, 0] = dx_dr
-            self.geo_factors_host[i, 1] = dx_ds
-            self.geo_factors_host[i, 2] = dy_dr
-            self.geo_factors_host[i, 3] = dy_ds
-            self.geo_factors_host[i, 4] = J
+            self.geo_factors_host[i, :, 0] = dx_dr
+            self.geo_factors_host[i, :, 1] = dx_ds
+            self.geo_factors_host[i, :, 2] = dy_dr
+            self.geo_factors_host[i, :, 3] = dy_ds
+            self.geo_factors_host[i, :, 4] = J
             
             # --- Face Normals and Surface Jacobians ---
             # Normals are outward pointing.
-            # J_face is the scaling factor (length of the edge relative to reference interval length 2)
+            # For bilinear quads with straight edges, these are constant per face.
             
-            # Face 0 (bottom): s=-1, r in [-1, 1]. Tangent vector T = dx/dr. Normal N = (dy/dr, -dx/dr).
+            # Face 0 (bottom)
             dx_dr_0 = dNd_r_f0 @ v[:, 0]
             dy_dr_0 = dNd_r_f0 @ v[:, 1]
             nx, ny = dy_dr_0, -dx_dr_0
-            J_face = np.sqrt(nx**2 + ny**2) # Length / 2
+            J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 0, :] = [nx/J_face, ny/J_face, J_face]
 
-            # Face 1 (right): r=1, s in [-1, 1]. Tangent T = dx/ds. Normal N = (dy/ds, -dx/ds).
+            # Face 1 (right)
             dx_ds_1 = dNd_s_f1 @ v[:, 0]
             dy_ds_1 = dNd_s_f1 @ v[:, 1]
             nx, ny = dy_ds_1, -dx_ds_1
             J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 1, :] = [nx/J_face, ny/J_face, J_face]
             
-            # Face 2 (top): s=1, r in [1, -1] (reverse!). Tangent T = -dx/dr. Normal N = (-dy/dr, dx/dr).
-            # This points outwards (Opposite to bottom normal direction relative to derivative)
+            # Face 2 (top)
             dx_dr_2 = dNd_r_f2 @ v[:, 0]
             dy_dr_2 = dNd_r_f2 @ v[:, 1]
             nx, ny = -dy_dr_2, dx_dr_2 
             J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 2, :] = [nx/J_face, ny/J_face, J_face]
 
-            # Face 3 (left): r=-1, s in [1, -1] (reverse!). Tangent T = -dx/ds. Normal N = (-dy/ds, dx/ds).
+            # Face 3 (left)
             dx_ds_3 = dNd_s_f3 @ v[:, 0]
             dy_ds_3 = dNd_s_f3 @ v[:, 1]
             nx, ny = -dy_ds_3, dx_ds_3 
