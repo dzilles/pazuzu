@@ -1,5 +1,9 @@
 from abc import ABC, abstractmethod
 import warp as wp
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from src.core.config import PazuzuConfig
 
 class BaseSolver(ABC):
     """
@@ -13,18 +17,18 @@ class BaseSolver(ABC):
         mesh (Mesh): The computational mesh.
         basis (Basis): The polynomial basis and operators.
         device (str): The compute device ("cpu" or "cuda").
-        config (dict, optional): Configuration dictionary containing physics-specific parameters.
+        config (PazuzuConfig, optional): Configuration object.
         Q (wp.array): The state vector array (initialized by concrete classes).
         rhs (wp.array): The right-hand side buffer array (initialized by concrete classes).
     """
-    def __init__(self, mesh, basis, config=None):
+    def __init__(self, mesh, basis, config: Optional["PazuzuConfig"] = None):
         """
         Initializes the base solver.
 
         Args:
             mesh (Mesh): The computational mesh.
             basis (Basis): The DG basis functions.
-            config (dict, optional): Physics configuration dictionary. Defaults to None.
+            config (PazuzuConfig, optional): Configuration object. Defaults to None.
         """
         self.mesh = mesh
         self.basis = basis

@@ -5,3 +5,5 @@ gmsh
 pyyaml
 matplotlib
 meshio
+pydantic
+scipy

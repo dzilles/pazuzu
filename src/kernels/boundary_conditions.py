@@ -1,8 +1,5 @@
 import warp as wp
-
-# --- Constants ---
-# These should ideally match physics/equations.py, but for kernels we define them here
-gamma = 1.4
+from typing import Any
 
 # --- Boundary Condition Type Constants ---
 BC_INTERNAL = 0
@@ -11,45 +8,49 @@ BC_FARFIELD = 2  # Farfield (Freestream / Characteristic)
 BC_INLET = 3     # Inlet (Freestream)
 BC_OUTLET = 4    # Subsonic Outlet
 BC_EXTRAPOLATION = 5 # Zero-Gradient / Outflow
+BC_CYLINDER_WALL = 6 # Slip Wall with analytical normals for cylinder
 
 # --- Helper Functions ---
 
 @wp.func
-def get_freestream_state(t: wp.float32, ramp_time: wp.float32) -> wp.vec4:
+def make_vec4_generic(x: wp.float32, y: wp.float32, z: wp.float32, w: wp.float32):
+    return wp.vec4(x, y, z, w)
+
+@wp.func
+def make_vec4_generic(x: wp.float64, y: wp.float64, z: wp.float64, w: wp.float64):
+    return wp.vec4d(x, y, z, w)
+
+@wp.func
+def get_freestream_state(t: Any, ramp_time: Any, template_q: Any, gamma: Any, half: Any, one: Any):
     """Returns the freestream state with ramping (rho=1, u=ramped, v=0, p=1)."""
-    rho = 1.0
+    zero = template_q[0] - template_q[0]
+    
+    rho = zero + one
     
     # Ramp u from 0 to 1 over ramp_time
-    target_u = 1.0
-    factor = 1.0
+    target_u = zero + one
+    factor = zero + one
+    
     if t < ramp_time:
         factor = t / ramp_time
         
     u = target_u * factor
-    v = 0.0
-    p = 1.0
+    v = zero
+    p = zero + one
     
     rho_u = rho * u
     rho_v = rho * v
-    kinetic_energy = 0.5 * rho * (u*u + v*v)
-    E = p / (gamma - 1.0) + kinetic_energy
+    kinetic_energy = half * rho * (u*u + v*v)
+    E = p / (gamma - one) + kinetic_energy
     
-    return wp.vec4(rho, rho_u, rho_v, E)
+    return make_vec4_generic(rho, rho_u, rho_v, E)
 
 # --- Boundary Condition Functions ---
 
 @wp.func
-def apply_slip_wall(q_inner: wp.vec4, nx: wp.float32, ny: wp.float32) -> wp.vec4:
+def apply_slip_wall(q_inner: Any, nx: Any, ny: Any, one: Any):
     """
     Applies Slip Wall boundary condition.
-    Mirrors the velocity vector across the wall surface (removes normal component).
-    
-    Args:
-        q_inner (wp.vec4): State inside the domain.
-        nx, ny (float): Normal vector pointing OUT of the domain.
-        
-    Returns:
-        wp.vec4: The ghost state q_outer.
     """
     rho = q_inner[0]
     rhou = q_inner[1]
@@ -60,43 +61,43 @@ def apply_slip_wall(q_inner: wp.vec4, nx: wp.float32, ny: wp.float32) -> wp.vec4
     mom_dot_n = rhou * nx + rhov * ny
     
     # Reflected momentum: v_ghost = v - 2 * (v . n) * n
-    rhou_ghost = rhou - 2.0 * mom_dot_n * nx
-    rhov_ghost = rhov - 2.0 * mom_dot_n * ny
+    # 2.0 = one + one
+    two = one + one
+    rhou_ghost = rhou - two * mom_dot_n * nx
+    rhov_ghost = rhov - two * mom_dot_n * ny
     
-    return wp.vec4(rho, rhou_ghost, rhov_ghost, E)
+    return make_vec4_generic(rho, rhou_ghost, rhov_ghost, E)
 
 @wp.func
-def apply_extrapolation(q_inner: wp.vec4) -> wp.vec4:
+def apply_cylinder_wall(q_inner: Any, x: Any, y: Any, one: Any):
     """
-    Applies Extrapolation / Outflow boundary condition.
+    Applies Slip Wall boundary condition using analytical normals for a cylinder centered at (0,0).
+    """
+    # Calculate analytical normal for cylinder centered at (0,0)
+    radius = wp.sqrt(x*x + y*y)
     
-    Uses 0th order extrapolation (q_outer = q_inner). 
-    This is non-reflective and allows flow to exit, preventing wall-shock instabilities
-    for the vortex test case.
-    
-    Args:
-        q_inner (wp.vec4): State inside.
+    # Avoid division by zero
+    nx_analytisch = x - x + one
+    ny_analytisch = x - x
+    if radius > 1e-8:
+        nx_analytisch = x / radius
+        ny_analytisch = y / radius
         
-    Returns:
-        wp.vec4: Ghost state (extrapolated).
-    """
+    return apply_slip_wall(q_inner, nx_analytisch, ny_analytisch, one)
+
+@wp.func
+def apply_extrapolation(q_inner: Any):
     return q_inner
 
 @wp.func
-def apply_farfield(q_inner: wp.vec4, nx: wp.float32, ny: wp.float32, t: wp.float32, ramp_time: wp.float32) -> wp.vec4:
+def apply_farfield(q_inner: Any, nx: Any, ny: Any, t: Any, ramp_time: Any, gamma: Any, half: Any, one: Any):
     """
     Applies Characteristic Farfield boundary condition.
-    
-    Checks the direction of the flow relative to the boundary normal.
-    - If Outflow (u.n > 0): Extrapolate inner state (Zero-Gradient).
-    - If Inflow (u.n < 0): Impose Freestream conditions.
-    
-    This is a simplified 0th-order Riemann boundary condition robust for subsonic/transonic flows.
     """
     rho = q_inner[0]
     # Protect against vacuum
     if rho < 1e-6:
-        return get_freestream_state(t, ramp_time)
+        return get_freestream_state(t, ramp_time, q_inner, gamma, half, one)
         
     u = q_inner[1] / rho
     v = q_inner[2] / rho
@@ -104,73 +105,59 @@ def apply_farfield(q_inner: wp.vec4, nx: wp.float32, ny: wp.float32, t: wp.float
     vn = u * nx + v * ny
     
     if vn > 0.0:
-        # Outflow: Extrapolate
         return q_inner
     else:
-        # Inflow: Freestream
-        return get_freestream_state(t, ramp_time)
+        return get_freestream_state(t, ramp_time, q_inner, gamma, half, one)
 
 @wp.func
-def apply_inlet(t: wp.float32, ramp_time: wp.float32) -> wp.vec4:
-    """
-    Applies Inlet boundary condition (Dirichlet Freestream).
-    """
-    return get_freestream_state(t, ramp_time)
+def apply_inlet(t: Any, ramp_time: Any, template_q: Any, gamma: Any, half: Any, one: Any):
+    return get_freestream_state(t, ramp_time, template_q, gamma, half, one)
 
 @wp.func
-def apply_outlet(q_inner: wp.vec4) -> wp.vec4:
+def apply_outlet(q_inner: Any, gamma: Any, half: Any, one: Any):
     """
     Applies Subsonic Outlet boundary condition.
-    Fixes pressure to p_back=1.0, extrapolates density and velocity.
     """
-    # p_back = 1.0
     rho = q_inner[0]
     rhou = q_inner[1]
     rhov = q_inner[2]
     
-    # Compute inner velocities to reconstruct Energy with new Pressure
-    p_back = float(1.0)
+    p_back = rho - rho + one
     
-    # Kinetic Energy = 0.5 * (rhou^2 + rhov^2) / rho
-    # Note: If rho is very small, this could be unstable, but q_inner should be valid.
-    kin_energy = 0.5 * (rhou*rhou + rhov*rhov) / rho
-    E_outer = p_back / (gamma - 1.0) + kin_energy
+    kin_energy = half * (rhou*rhou + rhov*rhov) / rho
+    E_outer = p_back / (gamma - one) + kin_energy
     
-    return wp.vec4(rho, rhou, rhov, E_outer)
+    return make_vec4_generic(rho, rhou, rhov, E_outer)
 
 @wp.func
 def apply_boundary_condition(
     bc_type: wp.int32, 
-    q_inner: wp.vec4, 
-    nx: wp.float32, 
-    ny: wp.float32,
-    t: wp.float32,
-    ramp_time: wp.float32
-) -> wp.vec4:
+    q_inner: Any, 
+    nx: Any, 
+    ny: Any,
+    x: Any,
+    y: Any,
+    t: Any,
+    ramp_time: Any,
+    gamma: Any,
+    half: Any,
+    one: Any
+):
     """
     Dispatcher for boundary conditions.
-    
-    Args:
-        bc_type (int): The boundary condition ID.
-        q_inner (wp.vec4): State inside.
-        nx, ny (float): Normal vector.
-        t (float): Current simulation time.
-        ramp_time (float): Ramping parameter.
-        
-    Returns:
-        wp.vec4: The ghost state q_outer.
     """
-    # Default to inner state (transmissive/extrapolation)
     q_outer = q_inner
     
     if bc_type == BC_WALL:
-        q_outer = apply_slip_wall(q_inner, nx, ny)
+        q_outer = apply_slip_wall(q_inner, nx, ny, one)
+    elif bc_type == BC_CYLINDER_WALL:
+        q_outer = apply_cylinder_wall(q_inner, x, y, one)
     elif bc_type == BC_FARFIELD:
-        q_outer = apply_farfield(q_inner, nx, ny, t, ramp_time)
+        q_outer = apply_farfield(q_inner, nx, ny, t, ramp_time, gamma, half, one)
     elif bc_type == BC_INLET:
-        q_outer = apply_inlet(t, ramp_time)
+        q_outer = apply_inlet(t, ramp_time, q_inner, gamma, half, one)
     elif bc_type == BC_OUTLET:
-        q_outer = apply_outlet(q_inner)
+        q_outer = apply_outlet(q_inner, gamma, half, one)
     elif bc_type == BC_EXTRAPOLATION:
         q_outer = apply_extrapolation(q_inner)
         

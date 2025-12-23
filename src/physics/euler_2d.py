@@ -3,8 +3,10 @@ from src.geometry.mesh import Mesh
 from src.core.basis import Basis
 from src.physics import equations as eq
 from src.kernels import euler_kernels as wk # Renamed import
+from src.kernels import common_kernels as ck
 import numpy as np
 import warp as wp
+from src.core.config import PazuzuConfig, FluxType, LimiterType
 
 class Euler2DSolver(BaseSolver):
     """
@@ -30,26 +32,39 @@ class Euler2DSolver(BaseSolver):
         y (wp.array): Physical y-coordinates on device.
         M_inv_diag (wp.array): Inverse of the diagonal mass matrix on device.
         max_wave_speed (wp.array): Buffer for maximum wave speed reduction.
+        cfg (PazuzuConfig): Typed configuration object.
     """
-    def __init__(self, mesh, basis, config=None):
+    def __init__(self, mesh, basis, config: PazuzuConfig):
         """
         Initializes the Euler 2D Solver.
 
         Args:
             mesh (Mesh): The computational mesh.
             basis (Basis): The DG basis.
-            config (dict, optional): Configuration dictionary. Defaults to None.
+            config (PazuzuConfig): Configuration object.
         """
         super().__init__(mesh, basis, config)
         
+        self.cfg = config
+
+        # --- Precision Setup ---
+        if config.numerics.precision == "double":
+            self.dtype_np = np.float64
+            self.dtype_warp = wp.float64
+            self.dtype_vec4 = wp.vec4d
+        else:
+            self.dtype_np = np.float32
+            self.dtype_warp = wp.float32
+            self.dtype_vec4 = wp.vec4
+
         # --- Host-side data (for setup) ---
         # Volume metrics: dx/dr, dx/ds, dy/dr, dy/ds, J
-        self.geo_factors_host = np.zeros((mesh.num_elements, basis.Np, 5), dtype=np.float32)
+        self.geo_factors_host = np.zeros((mesh.num_elements, basis.Np, 5), dtype=self.dtype_np)
         # Face metrics: nx, ny, J_surf
-        self.face_geo_factors_host = np.zeros((mesh.num_elements, 4, 3), dtype=np.float32)
+        self.face_geo_factors_host = np.zeros((mesh.num_elements, 4, 3), dtype=self.dtype_np)
         # Physical coordinates
-        self.x_host = np.zeros((mesh.num_elements, basis.Np), dtype=np.float32)
-        self.y_host = np.zeros((mesh.num_elements, basis.Np), dtype=np.float32)
+        self.x_host = np.zeros((mesh.num_elements, basis.Np), dtype=self.dtype_np)
+        self.y_host = np.zeros((mesh.num_elements, basis.Np), dtype=self.dtype_np)
         
         # Calculate geometric factors (Metrics & Jacobians)
         self._calculate_geometric_factors()
@@ -63,42 +78,57 @@ class Euler2DSolver(BaseSolver):
         # --- Device-side data (for computation) ---
         
         # Update Mesh Metric Arrays on Device (ensure they are synced)
-        self.mesh.rx = wp.array(self.mesh.rx_host, dtype=wp.float32, device=self.device)
-        self.mesh.ry = wp.array(self.mesh.ry_host, dtype=wp.float32, device=self.device)
-        self.mesh.sx = wp.array(self.mesh.sx_host, dtype=wp.float32, device=self.device)
-        self.mesh.sy = wp.array(self.mesh.sy_host, dtype=wp.float32, device=self.device)
-        self.mesh.J  = wp.array(self.mesh.J_host, dtype=wp.float32, device=self.device)
+        self.mesh.rx = wp.array(self.mesh.rx_host, dtype=self.dtype_warp, device=self.device)
+        self.mesh.ry = wp.array(self.mesh.ry_host, dtype=self.dtype_warp, device=self.device)
+        self.mesh.sx = wp.array(self.mesh.sx_host, dtype=self.dtype_warp, device=self.device)
+        self.mesh.sy = wp.array(self.mesh.sy_host, dtype=self.dtype_warp, device=self.device)
+        self.mesh.J  = wp.array(self.mesh.J_host, dtype=self.dtype_warp, device=self.device)
         
-        self.face_geo_factors = wp.array(self.face_geo_factors_host, dtype=wp.float32, device=self.device)
+        self.face_geo_factors = wp.array(self.face_geo_factors_host, dtype=self.dtype_warp, device=self.device)
         self.bc_mask = wp.array(self.bc_mask_host, dtype=wp.int32, device=self.device)
         
-        self.x = wp.array(self.x_host, dtype=wp.float32, device=self.device)
-        self.y = wp.array(self.y_host, dtype=wp.float32, device=self.device)
+        self.x = wp.array(self.x_host, dtype=self.dtype_warp, device=self.device)
+        self.y = wp.array(self.y_host, dtype=self.dtype_warp, device=self.device)
 
         # Inverse of Mass Matrix (diagonal)
         weights_2d = np.kron(self.basis.weights_1d.numpy(), self.basis.weights_1d.numpy())
         M_inv_diag_host = 1.0 / weights_2d
-        self.M_inv_diag = wp.array(M_inv_diag_host, dtype=wp.float32, device=self.device)
+        self.M_inv_diag = wp.array(M_inv_diag_host, dtype=self.dtype_warp, device=self.device)
         
         # Buffer for global max wave speed reduction
-        self.max_wave_speed = wp.zeros(1, dtype=wp.float32, device=self.device)
+        self.max_wave_speed = wp.zeros(1, dtype=self.dtype_warp, device=self.device)
 
         # Ramping parameter for inlet BC
-        self.ramp_time = 1.0
-        if config and 'simulation' in config:
-            self.ramp_time = config['simulation'].get('ramp_time', 1.0)
+        self.ramp_time = self.dtype_warp(config.simulation.ramp_time)
+        
+        # Filter Setup
+        self.filter_buffer = None
+        if config.numerics.use_filtering:
+            self.basis.compute_filter_matrix(config.numerics.filter_alpha, config.numerics.filter_order)
+            
+        # Physics Constants (Typed)
+        self.gamma_val = self.dtype_warp(config.physics.gamma)
+        self.rho_floor_val = self.dtype_warp(1.0e-5)
+        self.p_floor_val = self.dtype_warp(1.0e-5)
+        
+        self.half_val = self.dtype_warp(0.5)
+        self.one_val = self.dtype_warp(1.0)
             
     def initialize(self, initial_condition_func):
+
         """
         Initializes the state vector Q using the provided initial condition function.
 
         Args:
             initial_condition_func (callable): Function f(x, y) -> (rho, u, v, p).
         """
-        Q_host = np.zeros((self.mesh.num_elements, self.basis.Np, 4), dtype=np.float32)
+        Q_host = np.zeros((self.mesh.num_elements, self.basis.Np, 4), dtype=self.dtype_np)
         self._set_initial_conditions(Q_host, initial_condition_func)
-        self.Q = wp.array(Q_host, dtype=wp.vec4, device=self.device)
+        self.Q = wp.array(Q_host, dtype=self.dtype_vec4, device=self.device)
         self.rhs = wp.zeros_like(self.Q)
+        
+        if self.cfg.numerics.use_filtering:
+            self.filter_buffer = wp.zeros_like(self.Q)
 
     def compute_rhs(self, t, dt, q, rhs):
         """
@@ -119,6 +149,7 @@ class Euler2DSolver(BaseSolver):
             rhs (wp.array): Output RHS buffer.
         """
         rhs.zero_()
+        t_val = self.dtype_warp(t)
         
         # --- Volume Integral ---
         # Computes -div(F)
@@ -134,10 +165,20 @@ class Euler2DSolver(BaseSolver):
                 self.mesh.ry,
                 self.mesh.sx,
                 self.mesh.sy,
-                self.basis.Np
+                self.basis.Np,
+                self.gamma_val,
+                self.rho_floor_val,
+                self.p_floor_val,
+                self.half_val,
+                self.one_val
             ],
             device=self.device
         )
+        
+        # Determine Flux Type ID
+        flux_type_id = wk.FLUX_RUSANOV
+        if self.cfg.numerics.flux_type == FluxType.HLLC:
+            flux_type_id = wk.FLUX_HLLC
         
         # --- Surface Integral ---
         # Adds LIFT * (NumericalFlux - NormalFlux)
@@ -154,9 +195,17 @@ class Euler2DSolver(BaseSolver):
                 self.face_geo_factors, 
                 self.mesh.J,
                 self.bc_mask,
+                self.x, # Physical X coordinates
+                self.y, # Physical Y coordinates
                 self.basis.Nfp,
-                t,
-                self.ramp_time
+                t_val,
+                self.ramp_time,
+                flux_type_id,
+                self.gamma_val,
+                self.rho_floor_val,
+                self.p_floor_val,
+                self.half_val,
+                self.one_val
             ],
             device=self.device
         )
@@ -175,7 +224,15 @@ class Euler2DSolver(BaseSolver):
         wp.launch(
             kernel=wk.compute_max_wave_speed,
             dim=(self.mesh.num_elements, self.basis.Np),
-            inputs=[self.Q, self.max_wave_speed],
+            inputs=[
+                self.Q, 
+                self.max_wave_speed,
+                self.gamma_val,
+                self.rho_floor_val,
+                self.p_floor_val,
+                self.half_val,
+                self.one_val
+            ],
             device=self.device
         )
         max_speed = self.max_wave_speed.numpy()[0]
@@ -197,15 +254,16 @@ class Euler2DSolver(BaseSolver):
         """
         self.bc_mask_host = np.zeros((self.mesh.num_elements, 4), dtype=np.int32)
         
-        if self.config and 'boundaries' in self.config:
+        if self.config.boundaries:
             BC_WALL = 1
             BC_FARFIELD = 2      # Freestream / Characteristic
             BC_INLET = 3
             BC_OUTLET = 4
             BC_EXTRAPOLATION = 5 # 0th Order Extrapolation
+            BC_CYLINDER_WALL = 6 # Slip Wall with analytical normals
             
             tag_to_bc = {}
-            for name, bc_conf in self.config['boundaries'].items():
+            for name, bc_conf in self.config.boundaries.items():
                 tag = -1
                 # Try to map name to tag using mesh info
                 if hasattr(self.mesh, 'physical_groups') and name in self.mesh.physical_groups:
@@ -217,6 +275,7 @@ class Euler2DSolver(BaseSolver):
                 if tag != -1:
                     bc_type = bc_conf.get('type')
                     if bc_type == "slip_wall": tag_to_bc[tag] = BC_WALL
+                    elif bc_type == "cylinder_wall": tag_to_bc[tag] = BC_CYLINDER_WALL
                     elif bc_type == "farfield": tag_to_bc[tag] = BC_FARFIELD
                     elif bc_type in ["outflow", "extrapolation"]: tag_to_bc[tag] = BC_EXTRAPOLATION
                     elif bc_type == "inlet": tag_to_bc[tag] = BC_INLET
@@ -287,11 +346,11 @@ class Euler2DSolver(BaseSolver):
         
         # Allocate/Reset Mesh Metric Arrays (Host)
         # These now need to be (NumElements, Np)
-        self.mesh.rx_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=np.float32)
-        self.mesh.ry_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=np.float32)
-        self.mesh.sx_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=np.float32)
-        self.mesh.sy_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=np.float32)
-        self.mesh.J_host  = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=np.float32)
+        self.mesh.rx_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=self.dtype_np)
+        self.mesh.ry_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=self.dtype_np)
+        self.mesh.sx_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=self.dtype_np)
+        self.mesh.sy_host = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=self.dtype_np)
+        self.mesh.J_host  = np.zeros((self.mesh.num_elements, self.basis.Np), dtype=self.dtype_np)
 
         for i in range(self.mesh.num_elements):
             v = self.mesh.vertices_host[i, :, :] 
@@ -382,3 +441,26 @@ class Euler2DSolver(BaseSolver):
             for j in range(self.basis.Np):
                 rho, u, v, p = func(self.x_host[i, j], self.y_host[i, j])
                 Q_host[i, j, :] = eq.primitive_to_conservative([rho, u, v, p])
+
+    def filter_solution(self):
+        """
+        Applies exponential filtering (spectral viscosity) to the solution state.
+        This suppresses aliasing errors and stabilizes high-order simulations.
+        """
+        if self.basis.filter_matrix is not None and self.filter_buffer is not None:
+            # Apply filter: Q -> FilterBuffer
+            wp.launch(
+                kernel=ck.apply_filter_matrix,
+                dim=(self.mesh.num_elements, self.basis.Np),
+                inputs=[self.Q, self.basis.filter_matrix, self.filter_buffer],
+                device=self.device
+            )
+            # Copy back: FilterBuffer -> Q
+            wp.copy(self.Q, self.filter_buffer)
+
+    def post_step(self):
+        """
+        Hook called by the driver after each full time step.
+        """
+        if self.cfg.numerics.use_filtering:
+            self.filter_solution()

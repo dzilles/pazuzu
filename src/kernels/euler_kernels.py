@@ -1,10 +1,6 @@
 import warp as wp
 from src.kernels import boundary_conditions as bc
-
-# --- Constants ---
-gamma = 1.4
-rho_floor = 1.0e-5
-p_floor = 1.0e-5
+from typing import Any
 
 # Use constants from BC module
 BC_WALL = bc.BC_WALL
@@ -12,84 +8,61 @@ BC_FARFIELD = bc.BC_FARFIELD
 BC_INLET = bc.BC_INLET
 BC_OUTLET = bc.BC_OUTLET
 
+# Flux Types
+FLUX_RUSANOV = 0
+FLUX_HLLC = 1
+
 # --- Equation Kernels (Helper functions used by other kernels) ---
 
 @wp.func
-def pressure(q: wp.vec4) -> wp.float32:
+def pressure(q: Any, gamma: Any, rho_floor: Any, p_floor: Any, half: Any, one: Any):
     """
     Calculates the pressure from conservative variables with safety checks.
-    
-    p = (gamma - 1) * (E - 0.5 * rho * |u|^2)
-
-    Args:
-        q (wp.vec4): Conservative state vector [rho, rho*u, rho*v, E].
-
-    Returns:
-        float: The pressure, clamped to p_floor.
     """
-    rho = wp.max(q[0], rho_floor)
+    # Type promotion helper
+    zero = q[0] - q[0]
+    
+    rho = wp.max(q[0], zero + rho_floor)
     rho_u = q[1]
     rho_v = q[2]
     E = q[3]
     
-    # Kinetic Energy: 0.5 * rho * (u^2 + v^2) = 0.5 * (rho_u^2 + rho_v^2) / rho
-    kin_energy = 0.5 * (rho_u*rho_u + rho_v*rho_v) / rho
-    p = (gamma - 1.0) * (E - kin_energy)
-    return wp.max(p, p_floor)
+    kin_energy = half * (rho_u*rho_u + rho_v*rho_v) / rho
+    p = (gamma - one) * (E - kin_energy)
+    return wp.max(p, zero + p_floor)
 
 @wp.func
-def flux_x(q: wp.vec4) -> wp.vec4:
+def flux_x(q: Any, gamma: Any, rho_floor: Any, p_floor: Any, half: Any, one: Any):
     """
     Computes the Euler Flux function F(q) in the x-direction.
-    
-    F(q) = [rho*u, rho*u^2 + p, rho*u*v, (E+p)*u]
-
-    Args:
-        q (wp.vec4): Conservative state vector.
-
-    Returns:
-        wp.vec4: The flux vector in x-direction.
     """
-    rho = wp.max(q[0], rho_floor)
-    p = pressure(q)
+    zero = q[0] - q[0]
+    rho = wp.max(q[0], zero + rho_floor)
+    p = pressure(q, gamma, rho_floor, p_floor, half, one)
     u = q[1] / rho
     
-    return wp.vec4(q[1], q[1]*u + p, q[2]*u, (q[3] + p)*u)
+    return bc.make_vec4_generic(q[1], q[1]*u + p, q[2]*u, (q[3] + p)*u)
 
 @wp.func
-def flux_y(q: wp.vec4) -> wp.vec4:
+def flux_y(q: Any, gamma: Any, rho_floor: Any, p_floor: Any, half: Any, one: Any):
     """
     Computes the Euler Flux function G(q) in the y-direction.
-    
-    G(q) = [rho*v, rho*v*u, rho*v^2 + p, (E+p)*v]
-
-    Args:
-        q (wp.vec4): Conservative state vector.
-
-    Returns:
-        wp.vec4: The flux vector in y-direction.
     """
-    rho = wp.max(q[0], rho_floor)
-    p = pressure(q)
+    zero = q[0] - q[0]
+    rho = wp.max(q[0], zero + rho_floor)
+    p = pressure(q, gamma, rho_floor, p_floor, half, one)
     v = q[2] / rho
     
-    return wp.vec4(q[2], q[1]*v, q[2]*v + p, (q[3] + p)*v)
+    return bc.make_vec4_generic(q[2], q[1]*v, q[2]*v + p, (q[3] + p)*v)
 
 @wp.func
-def get_max_wave_speed(q: wp.vec4, nx: wp.float32, ny: wp.float32) -> wp.float32:
+def get_max_wave_speed(q: Any, nx: Any, ny: Any, gamma: Any, rho_floor: Any, p_floor: Any, half: Any, one: Any):
     """
     Calculates the acoustic wave speed |u_n| + c in the direction normal to a face.
-
-    Args:
-        q (wp.vec4): Conservative state vector.
-        nx (float): X-component of the normal vector.
-        ny (float): Y-component of the normal vector.
-
-    Returns:
-        float: The maximum wave speed.
     """
-    rho = wp.max(q[0], rho_floor)
-    p = pressure(q)
+    zero = q[0] - q[0]
+    rho = wp.max(q[0], zero + rho_floor)
+    p = pressure(q, gamma, rho_floor, p_floor, half, one)
     c = wp.sqrt(gamma * p / rho)
     
     # Velocity normal to the face
@@ -97,68 +70,127 @@ def get_max_wave_speed(q: wp.vec4, nx: wp.float32, ny: wp.float32) -> wp.float32
     return wp.abs(u_n) + c
 
 @wp.func
-def rusanev_flux(q_l: wp.vec4, q_r: wp.vec4, nx: wp.float32, ny: wp.float32) -> wp.vec4:
+def rusanov_flux(q_l: Any, q_r: Any, nx: Any, ny: Any, gamma: Any, rho_floor: Any, p_floor: Any, half: Any, one: Any):
     """
     Computes the Lax-Friedrichs / Rusanov numerical flux across an interface.
-    
-    F* = 0.5 * (F_l + F_r) - 0.5 * alpha * (Q_r - Q_l)
-    where alpha is the maximum wave speed.
-
-    Args:
-        q_l (wp.vec4): State on the left/inner side of the face.
-        q_r (wp.vec4): State on the right/outer side of the face.
-        nx (float): Normal x-component.
-        ny (float): Normal y-component.
-
-    Returns:
-        wp.vec4: The numerical flux vector.
     """
     # Fluxes projected onto normal
-    F_l = flux_x(q_l) * nx + flux_y(q_l) * ny
-    F_r = flux_x(q_r) * nx + flux_y(q_r) * ny
+    F_l = flux_x(q_l, gamma, rho_floor, p_floor, half, one) * nx + flux_y(q_l, gamma, rho_floor, p_floor, half, one) * ny
+    F_r = flux_x(q_r, gamma, rho_floor, p_floor, half, one) * nx + flux_y(q_r, gamma, rho_floor, p_floor, half, one) * ny
     
     # Wave speeds
-    lambda_l = get_max_wave_speed(q_l, nx, ny)
-    lambda_r = get_max_wave_speed(q_r, nx, ny)
+    lambda_l = get_max_wave_speed(q_l, nx, ny, gamma, rho_floor, p_floor, half, one)
+    lambda_r = get_max_wave_speed(q_r, nx, ny, gamma, rho_floor, p_floor, half, one)
     alpha = wp.max(lambda_l, lambda_r)
     
-    # Numerical Flux: Avg(Flux) - Dissipation
-    return 0.5 * (F_l + F_r) - 0.5 * alpha * (q_r - q_l)
+    return half * (F_l + F_r) - half * alpha * (q_r - q_l)
+
+@wp.func
+def hllc_flux(q_l: Any, q_r: Any, nx: Any, ny: Any, gamma: Any, rho_floor: Any, p_floor: Any, half: Any, one: Any):
+    """
+    Computes the HLLC (Harten-Lax-van Leer-Contact) numerical flux.
+    """
+    zero = q_l[0] - q_l[0]
+    
+    # 1. Primitives and Normal Velocities
+    rho_l = wp.max(q_l[0], zero + rho_floor)
+    u_l = q_l[1] / rho_l
+    v_l = q_l[2] / rho_l
+    p_l = pressure(q_l, gamma, rho_floor, p_floor, half, one)
+    
+    rho_r = wp.max(q_r[0], zero + rho_floor)
+    u_r = q_r[1] / rho_r
+    v_r = q_r[2] / rho_r
+    p_r = pressure(q_r, gamma, rho_floor, p_floor, half, one)
+
+    # Normal velocities
+    un_l = u_l * nx + v_l * ny
+    un_r = u_r * nx + v_r * ny
+
+    # Sound speeds
+    c_l = wp.sqrt(gamma * p_l / rho_l)
+    c_r = wp.sqrt(gamma * p_r / rho_r)
+
+    # 2. Wave Speed Estimates (Davis estimate)
+    s_l = wp.min(un_l - c_l, un_r - c_r)
+    s_r = wp.max(un_l + c_l, un_r + c_r)
+
+    # 3. Check for Inter-wave states
+    if s_l >= 0.0:
+        # Supersonic flow to the right -> Flux is F_L
+        return flux_x(q_l, gamma, rho_floor, p_floor, half, one) * nx + flux_y(q_l, gamma, rho_floor, p_floor, half, one) * ny
+    elif s_r <= 0.0:
+        # Supersonic flow to the left -> Flux is F_R
+        return flux_x(q_r, gamma, rho_floor, p_floor, half, one) * nx + flux_y(q_r, gamma, rho_floor, p_floor, half, one) * ny
+    else:
+        # Subsonic / Contact wave involved
+        
+        numer = p_r - p_l + rho_l * un_l * (s_l - un_l) - rho_r * un_r * (s_r - un_r)
+        denom = rho_l * (s_l - un_l) - rho_r * (s_r - un_r)
+        
+        # Safety for denom
+        if wp.abs(denom) < 1.0e-8:
+            s_star = half * (un_l + un_r) # Fallback to average
+        else:
+            s_star = numer / denom
+
+        # Select Side (Left or Right of Contact Discontinuity)
+        if s_star >= 0.0:
+            # We are in the Star-Left region
+            D_l = (s_l - un_l) / (s_l - s_star)
+            
+            rho_star_l = rho_l * D_l
+            u_star_l = u_l + (s_star - un_l) * nx
+            v_star_l = v_l + (s_star - un_l) * ny
+            
+            E_term = (q_l[3] / rho_l) + (s_star - un_l) * (s_star + p_l / (rho_l * (s_l - un_l)))
+            E_star_tot_l = rho_star_l * E_term
+            
+            U_star_l = bc.make_vec4_generic(rho_star_l, rho_star_l * u_star_l, rho_star_l * v_star_l, E_star_tot_l)
+            
+            # Flux F_l projected
+            F_l_n = flux_x(q_l, gamma, rho_floor, p_floor, half, one) * nx + flux_y(q_l, gamma, rho_floor, p_floor, half, one) * ny
+            
+            return F_l_n + s_l * (U_star_l - q_l)
+
+        else:
+            # We are in the Star-Right region
+            D_r = (s_r - un_r) / (s_r - s_star)
+            
+            rho_star_r = rho_r * D_r
+            u_star_r = u_r + (s_star - un_r) * nx
+            v_star_r = v_r + (s_star - un_r) * ny
+            
+            E_term = (q_r[3] / rho_r) + (s_star - un_r) * (s_star + p_r / (rho_r * (s_r - un_r)))
+            E_star_tot_r = rho_star_r * E_term
+            
+            U_star_r = bc.make_vec4_generic(rho_star_r, rho_star_r * u_star_r, rho_star_r * v_star_r, E_star_tot_r)
+            
+            F_r_n = flux_x(q_r, gamma, rho_floor, p_floor, half, one) * nx + flux_y(q_r, gamma, rho_floor, p_floor, half, one) * ny
+            
+            return F_r_n + s_r * (U_star_r - q_r)
 
 # --- Solver Kernels ---
 
 @wp.kernel
 def compute_volume_term(
-    q: wp.array(dtype=wp.vec4, ndim=2),      # (NumElems, Np)
-    rhs: wp.array(dtype=wp.vec4, ndim=2),    # Output RHS
-    Dr: wp.array(dtype=wp.float32, ndim=2),  # Differentiation Matrix r
-    Ds: wp.array(dtype=wp.float32, ndim=2),  # Differentiation Matrix s
-    rx: wp.array(dtype=wp.float32, ndim=2),  # Metric dr/dx (NumElems, Np)
-    ry: wp.array(dtype=wp.float32, ndim=2),  # Metric dr/dy (NumElems, Np)
-    sx: wp.array(dtype=wp.float32, ndim=2),  # Metric ds/dx (NumElems, Np)
-    sy: wp.array(dtype=wp.float32, ndim=2),  # Metric ds/dy (NumElems, Np)
-    Np: wp.int32                             # Number of points per element
+    q: wp.array(dtype=Any, ndim=2),      # (NumElems, Np)
+    rhs: wp.array(dtype=Any, ndim=2),    # Output RHS
+    Dr: wp.array(dtype=Any, ndim=2),  # Differentiation Matrix r
+    Ds: wp.array(dtype=Any, ndim=2),  # Differentiation Matrix s
+    rx: wp.array(dtype=Any, ndim=2),  # Metric dr/dx (NumElems, Np)
+    ry: wp.array(dtype=Any, ndim=2),  # Metric dr/dy (NumElems, Np)
+    sx: wp.array(dtype=Any, ndim=2),  # Metric ds/dx (NumElems, Np)
+    sy: wp.array(dtype=Any, ndim=2),  # Metric ds/dy (NumElems, Np)
+    Np: wp.int32,                             # Number of points per element
+    gamma: Any,
+    rho_floor: Any,
+    p_floor: Any,
+    half: Any,
+    one: Any
 ):
     """
-    Computes the divergence of the flux (volume integral) using the strong form for general curvilinear coordinates.
-    
-    div F = dF/dx + dG/dy
-    Using the chain rule:
-    dF/dx = (dF/dr * dr/dx) + (dF/ds * ds/dx)
-    dG/dy = (dG/dr * dr/dy) + (dG/ds * ds/dy)
-    
-    The result is added to the RHS (Strong Form: rhs = -div F).
-
-    Args:
-        q (wp.array): State vector array.
-        rhs (wp.array): Right-hand side accumulation array.
-        Dr (wp.array): Differentiation matrix for reference coordinate r.
-        Ds (wp.array): Differentiation matrix for reference coordinate s.
-        rx (wp.array): Metric term dr/dx per element per node.
-        ry (wp.array): Metric term dr/dy per element per node.
-        sx (wp.array): Metric term ds/dx per element per node.
-        sy (wp.array): Metric term ds/dy per element per node.
-        Np (int): Number of nodes per element.
+    Computes the divergence of the flux (volume integral).
     """
     e, i = wp.tid() # Element e, Node i
 
@@ -168,21 +200,23 @@ def compute_volume_term(
     ds_dx = sx[e, i]
     ds_dy = sy[e, i]
 
-    dF_dr = wp.vec4(0.0)
-    dF_ds = wp.vec4(0.0)
-    dG_dr = wp.vec4(0.0)
-    dG_ds = wp.vec4(0.0)
+    # Initialize accumulation vectors with zeros of correct type
+    zero_vec = q[e, i] - q[e, i]
+    
+    dF_dr = zero_vec
+    dF_ds = zero_vec
+    dG_dr = zero_vec
+    dG_ds = zero_vec
 
-    # Matrix-Vector Multiplication: Sum over j to compute derivatives in reference space
+    # Matrix-Vector Multiplication
     for j in range(Np):
         q_val = q[e, j]
         
         # Fluxes at node j
-        F_val = flux_x(q_val)
-        G_val = flux_y(q_val)
+        F_val = flux_x(q_val, gamma, rho_floor, p_floor, half, one)
+        G_val = flux_y(q_val, gamma, rho_floor, p_floor, half, one)
         
         # Accumulate derivatives
-        # We need derivatives of both fluxes with respect to both ref coords
         dr = Dr[i, j]
         ds = Ds[i, j]
         
@@ -192,49 +226,43 @@ def compute_volume_term(
         dG_dr += G_val * dr
         dG_ds += G_val * ds
 
-    # Apply Chain Rule to map derivatives to physical space
+    # Apply Chain Rule
     dF_dx = dF_dr * dr_dx + dF_ds * ds_dx
     dG_dy = dG_dr * dr_dy + dG_ds * ds_dy
     
-    # RHS update (Strong Form: rhs = -div F)
+    # RHS update
     rhs[e, i] = -(dF_dx + dG_dy) 
 
 
 @wp.kernel
 def compute_surface_term(
-    q: wp.array(dtype=wp.vec4, ndim=2),        # State
-    rhs: wp.array(dtype=wp.vec4, ndim=2),      # RHS to accumulate into
-    connectivity: wp.array(dtype=wp.int32, ndim=2), # (NumElems, 4) -> NeighborID
-    neighbor_face_indices: wp.array(dtype=wp.int32, ndim=2), # (NumElems, 4) -> NeighborFaceID
-    face_map: wp.array(dtype=wp.int32, ndim=2),# (4, Nfp) -> Node Indices on faces
-    LIFT: wp.array(dtype=wp.float32, ndim=2),  # (Np, 4*Nfp) Lift Matrix
-    face_geo_factors: wp.array(dtype=wp.float32, ndim=3), # (NumElements, 4, 3) -> nx, ny, J_surf
-    J: wp.array(dtype=wp.float32, ndim=2),     # Volume Jacobian (NumElems, Np)
-    bc_mask: wp.array(dtype=wp.int32, ndim=2), # (NumElements, 4) -> BC Type ID
-    Nfp: wp.int32,                             # Number of face points
-    t: wp.float32,                             # Current simulation time
-    ramp_time: wp.float32                      # Time to ramp up inlet
+    q: wp.array(dtype=Any, ndim=2),        # State
+    rhs: wp.array(dtype=Any, ndim=2),      # RHS to accumulate into
+    connectivity: wp.array(dtype=wp.int32, ndim=2),
+    neighbor_face_indices: wp.array(dtype=wp.int32, ndim=2),
+    face_map: wp.array(dtype=wp.int32, ndim=2),
+    LIFT: wp.array(dtype=Any, ndim=2),
+    face_geo_factors: wp.array(dtype=Any, ndim=3), 
+    J: wp.array(dtype=Any, ndim=2),     
+    bc_mask: wp.array(dtype=wp.int32, ndim=2),
+    coord_x: wp.array(dtype=Any, ndim=2),
+    coord_y: wp.array(dtype=Any, ndim=2),
+    Nfp: wp.int32,
+    t: Any,
+    ramp_time: Any,
+    flux_type: wp.int32,
+    gamma: Any,
+    rho_floor: Any,
+    p_floor: Any,
+    half: Any,
+    one: Any
 ):
     """
     Computes the surface integral (flux jump) and lifts it to the volume nodes.
-    
-    Iterates over all elements and their 4 faces. Calculates the numerical flux at the interface,
-    computes the jump against the internal normal flux, and projects this jump to the volume nodes
-    using the LIFT matrix. Supports unstructured meshes and boundary conditions.
-
-    Args:
-        q (wp.array): State vector array.
-        rhs (wp.array): Right-hand side accumulation array.
-        connectivity (wp.array): Element connectivity (neighbors).
-        neighbor_face_indices (wp.array): Neighbor face indices.
-        face_map (wp.array): Map from face index to local node indices.
-        LIFT (wp.array): Lift operator matrix.
-        face_geo_factors (wp.array): Geometric factors for faces (normals, surface Jacobian).
-        J (wp.array): Volume Jacobian determinant per element per node.
-        bc_mask (wp.array): Boundary condition type ID per face.
-        Nfp (int): Number of face points.
     """
     e = wp.tid() # One thread per element
+
+    zero_vec = q[e, 0] - q[e, 0]
 
     # Loop over all 4 faces of the quadrilateral
     for face_idx in range(4):
@@ -258,9 +286,6 @@ def compute_surface_term(
             if neighbor_e >= 0:
                 # --- Interior Face ---
                 neighbor_face = neighbor_face_indices[e, face_idx]
-                
-                # Assume standard conforming mesh orientation
-                # Node ordering should match for aligned meshes (k -> k)
                 neighbor_k = k 
                 neighbor_node_idx = face_map[neighbor_face, neighbor_k]
                 
@@ -268,13 +293,19 @@ def compute_surface_term(
             else:
                 # --- Boundary Face ---
                 bc_type = bc_mask[e, face_idx]
-                q_outer = bc.apply_boundary_condition(bc_type, q_inner, nx, ny, t, ramp_time)
+                x = coord_x[e, node_idx_local]
+                y = coord_y[e, node_idx_local]
+                q_outer = bc.apply_boundary_condition(bc_type, q_inner, nx, ny, x, y, t, ramp_time, gamma, half, one)
             
             # 1. Numerical Flux (F*)
-            f_star = rusanev_flux(q_inner, q_outer, nx, ny)
+            f_star = zero_vec
+            if flux_type == FLUX_HLLC:
+                f_star = hllc_flux(q_inner, q_outer, nx, ny, gamma, rho_floor, p_floor, half, one)
+            else:
+                f_star = rusanov_flux(q_inner, q_outer, nx, ny, gamma, rho_floor, p_floor, half, one)
             
             # 2. Normal Flux from interior (F_n)
-            f_n = flux_x(q_inner) * nx + flux_y(q_inner) * ny
+            f_n = flux_x(q_inner, gamma, rho_floor, p_floor, half, one) * nx + flux_y(q_inner, gamma, rho_floor, p_floor, half, one) * ny
             
             # 3. Flux Jump (F* - F_n) scaled by Surface Jacobian
             flux_jump = (f_n - f_star) * surf_J
@@ -284,39 +315,34 @@ def compute_surface_term(
             
             for i in range(q.shape[1]): # Iterate over all volume nodes (Np)
                 lift_val = LIFT[i, lift_col]
-                
-                # Get Volume Jacobian at this specific volume node i
                 vol_J = J[e, i]
-                
-                # Add to RHS: 1/J * LIFT * Jump
                 val = lift_val * flux_jump / vol_J
-                
-                wp.atomic_add(rhs, e, i, val)
+                rhs[e, i] += val
 
 @wp.kernel
 def compute_max_wave_speed(
-    q: wp.array(dtype=wp.vec4, ndim=2),      # Shape: (num_elements, Np)
-    max_speed: wp.array(dtype=wp.float32, ndim=1) # Shape: (1,)
+    q: wp.array(dtype=Any, ndim=2),      # Shape: (num_elements, Np)
+    max_speed: wp.array(dtype=Any, ndim=1), # Shape: (1,)
+    gamma: Any,
+    rho_floor: Any,
+    p_floor: Any,
+    half: Any,
+    one: Any
 ):
     """
     Computes the maximum wave speed in the entire domain for CFL calculation.
-    
-    This kernel iterates over all nodes, calculates |u| + c, and updates a global maximum using atomic operations.
-
-    Args:
-        q (wp.array): State vector array.
-        max_speed (wp.array): A scalar array (size 1) to store the result.
     """
     e, i = wp.tid()
     
     # Load state
     val = q[e, i]
-    rho = wp.max(val[0], rho_floor)
+    zero = val[0] - val[0]
+    rho = wp.max(val[0], zero + rho_floor)
     
     # Primitive variables
     u = val[1] / rho
     v = val[2] / rho
-    p = pressure(val)
+    p = pressure(val, gamma, rho_floor, p_floor, half, one)
     
     # Sound speed c
     c = wp.sqrt(gamma * p / rho)

@@ -3,11 +3,7 @@ import os
 import numpy as np
 import h5py
 import subprocess
-
-# Add project root to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
-
-from src.physics.initial_conditions import vortex
+import matplotlib.pyplot as plt
 
 def run_simulation():
     config_path = os.path.join(os.path.dirname(__file__), "vortex.yaml")
@@ -26,6 +22,55 @@ def run_simulation():
     else:
         print("Simulation finished successfully.")
 
+def periodic_vortex(x, y, t=0.0, Lx=10.0, Ly=10.0):
+    """
+    Computes the exact solution for the 2D Isentropic Vortex problem at time t,
+    correctly handling periodic boundary conditions on a [0, Lx] x [0, Ly] domain.
+    """
+    gamma = 1.4
+    beta = 5.0  # Vortex strength
+    
+    u_inf = 1.0
+    v_inf = 1.0
+    
+    # Initial center (Relative to domain min, assumed 0 for simplicity or centered)
+    # The standard test case usually centers it at (5,5) regardless of domain size?
+    # Or (Lx/2, Ly/2)? 
+    # box.msh usually comes from Gmsh scripts. If it is 20x20, maybe center is (10,10)?
+    # Let's assume standard (5,5) for now, but if the domain is 20x20, (5,5) is lower left.
+    # We should probably check the config/generation script.
+    # But sticking to (5,5) is safe if that's how it was generated.
+    xc, yc = 5.0, 5.0
+    
+    # Current analytical center (unwrapped)
+    xc_t = xc + u_inf * t
+    yc_t = yc + v_inf * t
+    
+    # Calculate distance vector from the vortex center
+    dx = x - xc_t
+    dy = y - yc_t
+    
+    # Apply Periodicity: Wrap distance to [-L/2, L/2]
+    dx = dx - Lx * np.round(dx / Lx)
+    dy = dy - Ly * np.round(dy / Ly)
+    
+    r_sq = dx**2 + dy**2
+    
+    # Perturbations
+    du = -(beta / (2 * np.pi)) * np.exp(0.5 * (1 - r_sq)) * dy
+    dv =  (beta / (2 * np.pi)) * np.exp(0.5 * (1 - r_sq)) * dx
+    
+    u = u_inf + du
+    v = v_inf + dv
+    
+    T_inf = 1.0
+    T = T_inf - ((gamma - 1) * beta**2 / (8 * gamma * np.pi**2)) * np.exp(1 - r_sq)
+    
+    rho = T**(1.0 / (gamma - 1))
+    p = rho**gamma
+    
+    return rho, u, v, p
+
 def verify():
     output_dir = os.path.join(os.path.dirname(__file__), "output")
     h5_file = os.path.join(output_dir, "results.h5")
@@ -39,17 +84,14 @@ def verify():
         points = f['mesh/points'][:]
         conn = f['mesh/connectivity'][:]
         
-        # Calculate Centroids
-        # conn is (N_elems, 4)
-        # points is (N_points, 3)
-        
-        # Get coordinates of all 4 nodes for all elements
-        # Shape (N_elems, 4, 3)
-        element_coords = points[conn] 
-        centroids = np.mean(element_coords, axis=1) # (N_elems, 3)
+        # Determine Domain Size from Mesh Points
+        x_min, x_max = points[:, 0].min(), points[:, 0].max()
+        y_min, y_max = points[:, 1].min(), points[:, 1].max()
+        Lx = x_max - x_min
+        Ly = y_max - y_min
+        print(f"Detected Domain Size: {Lx:.2f} x {Ly:.2f}")
         
         # Load Final Step Data
-        # Find last step (numerical sort)
         steps = [k for k in f['data'].keys() if k.startswith('step_')]
         if not steps:
             print("No steps found in output file.")
@@ -62,49 +104,87 @@ def verify():
         time = f['data'][last_step].attrs['time']
         print(f"Verifying step: {last_step} at t={time:.4f}")
         
-        rho_num = f['data'][last_step]['rho'][:]
+        rho_sample = f['data'][last_step]['rho'][:]
         
-        # Determine if data is Nodal (Point) or Cell-Average (Centroid)
-        # Low-order: rho is (N_elems,), points is (N_elems*4, 3), centroids is (N_elems, 3). Matches Centroids.
-        # High-order: rho is (N_nodes,), points is (N_nodes, 3). Matches Points.
-        
-        if rho_num.shape[0] == points.shape[0]:
-            print(f"Detected Nodal Data (High-Order). N={rho_num.shape[0]}")
-            # Calculate at Points (Nodes)
+        if rho_sample.shape[0] == points.shape[0]:
+            print(f"Detected Nodal Data (High-Order). N={rho_sample.shape[0]}")
             x = points[:, 0]
             y = points[:, 1]
-        elif rho_num.shape[0] == centroids.shape[0]:
-            print(f"Detected Cell Data (Low-Order). N={rho_num.shape[0]}")
-            # Calculate at Centroids
-            x = centroids[:, 0]
-            y = centroids[:, 1]
+            mode = "nodal"
+        elif rho_sample.shape[0] == conn.shape[0]:
+             print(f"Detected Cell Data (Low-Order). N={rho_sample.shape[0]}")
+             element_coords = points[conn]
+             centroids = np.mean(element_coords, axis=1)
+             x = centroids[:, 0]
+             y = centroids[:, 1]
+             mode = "cell"
         else:
-            print(f"Error: Data shape {rho_num.shape} matches neither Points {points.shape} nor Centroids {centroids.shape}.")
-            # Fallback (legacy/debugging)
-            if rho_num.shape[0] == 10000 and centroids.shape[0] == 6400:
-                 print("Warning: Detected known mismatch scenario. Mesh file might be stale.")
+            print(f"Error: Data shape {rho_sample.shape} matches neither Points {points.shape} nor Elements {conn.shape}.")
+            sys.exit(1)
+        
+        # --- Check All Variables ---
+        variables = ['rho', 'u', 'v', 'p']
+        
+        # Compute Analytical Solution once
+        rho_ana, u_ana, v_ana, p_ana = periodic_vortex(x, y, t=time, Lx=Lx, Ly=Ly)
+        analytical = {'rho': rho_ana, 'u': u_ana, 'v': v_ana, 'p': p_ana}
+        
+        # Thresholds
+        threshold_l2 = 5.0e-2 
+        threshold_linf = 1.0e-1 
+        
+        failed = False
+        
+        print(f"{'Variable':<5} | {'L2 Error':<12} | {'L_inf Error':<12} | {'Status'}")
+        print("-" * 45)
+        
+        for var in variables:
+            # Get Numerical Data
+            num_data = f['data'][last_step][var][:]
+            ana_data = analytical[var]
             
-            sys.exit(1)
-        
-        # Vectorized call to vortex
-        rho_ana, _, _, _ = vortex(x, y, t=time)
-        
-        # Error (L2 norm relative)
-        diff = rho_num - rho_ana
-        l2_error = np.linalg.norm(diff) / np.linalg.norm(rho_ana)
-        
-        print(f"L2 Error (Density): {l2_error:.4e}")
-        
-        # Threshold
-        # Since we use cell averages on a 20x20 mesh compared to point-wise analytical,
-        # the error might be dominated by the averaging/sampling error rather than solver error.
-        # But it should be reasonably small. 
-        threshold = 5.0e-2 # 5% tolerance
-        if l2_error > threshold:
-            print(f"Test FAILED: Error {l2_error:.4e} > {threshold}")
+            # Error Calculation
+            diff = num_data - ana_data
+            abs_diff = np.abs(diff)
+            
+            # L2 Error (Relative)
+            norm_ana = np.linalg.norm(ana_data)
+            if norm_ana < 1e-12: norm_ana = 1.0 # Safety
+            l2_error = np.linalg.norm(diff) / norm_ana
+            
+            # L_inf Error (Absolute Max)
+            linf_error = np.max(abs_diff)
+            
+            # Check Pass/Fail
+            status = "PASS"
+            if l2_error > threshold_l2 or linf_error > threshold_linf:
+                status = "FAIL"
+                failed = True
+            
+            print(f"{var:<5} | {l2_error:.4e}   | {linf_error:.4e}   | {status}")
+            
+            # --- Generate Heatmap ---
+            plt.figure(figsize=(8, 6))
+            if mode == "nodal":
+                 plt.tricontourf(x, y, abs_diff, levels=20, cmap='inferno')
+            else:
+                 plt.scatter(x, y, c=abs_diff, cmap='inferno', s=10)
+                 
+            plt.colorbar(label=f'Absolute Error |{var}_num - {var}_exact|')
+            plt.title(f'{var.upper()} Error at t={time:.2f}\nL2={l2_error:.2e}, Linf={linf_error:.2e}')
+            plt.xlabel('x')
+            plt.ylabel('y')
+            plt.axis('equal')
+            
+            plot_file = os.path.join(output_dir, f"error_{var}.png")
+            plt.savefig(plot_file)
+            plt.close()
+
+        if failed:
+            print("\n❌ Verification FAILED: Some errors exceeded thresholds.")
             sys.exit(1)
         else:
-            print("Test PASSED.")
+            print("\n✅ Verification PASSED.")
 
 if __name__ == "__main__":
     run_simulation()

@@ -1,22 +1,27 @@
-simulation:
-  type: "euler_2d"
-  t_final: 50.0
+case_name: "cylinder_flow"
+mesh_file: "cylinder.msh"
+initial_condition: "rest"
+
+physics:
+  gamma: 1.4
+  gas_constant: 287.0
+
+numerics:
   cfl: 0.05
+  polynomial_order: 1
+  flux_type: "rusanov"
+  limiter: "none"
+  use_filtering: false
+
+io:
   output_dir: "output"
-  log_frequency: 20
+  write_interval: 0.5
+
+simulation:
+  t_final: 50.0
+  ramp_time: 1.0
   device: "cpu"
   max_steps: 10000
-  ramp_time: 1.0
-
-mesh:
-  type: "unstructured"
-  filename: "cylinder.msh"
-
-numerical:
-  polynomial_degree: 1
-
-initial_condition:
-  name: "rest"
 
 boundaries:
   "Inlet":
@@ -28,4 +33,4 @@ boundaries:
   "Bottom":
     type: "slip_wall"
   "Cylinder":
-    type: "slip_wall"
+    type: "cylinder_wall"

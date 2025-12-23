@@ -135,7 +135,7 @@ class Mesh:
         Generates connectivity and boundary tags for a structured Cartesian grid.
         
         Faces are ordered: 0: Bottom, 1: Right, 2: Top, 3: Left.
-        Assigns standard physical tags: 1=Bottom, 2=Right, 3=Top, 4=Left.
+        Assigns standard physical tags: 1=Bottom, 2=Top, 3=Left (Inlet), 4=Right (Outlet).
         """
         self.boundary_tags_host = np.zeros((self.num_elements, 4), dtype=np.int32)
         
@@ -148,14 +148,14 @@ class Mesh:
                     ni, nj = i - 1, j
                     self.connectivity_host[element_id, 3] = [nj * self.nx + ni, 1]
                 else:
-                    self.boundary_tags_host[element_id, 3] = 4 # Left Tag
+                    self.boundary_tags_host[element_id, 3] = 3 # Left Tag (Inlet)
 
                 # Right (Face 1)
                 if i < self.nx - 1:
                     ni, nj = i + 1, j
                     self.connectivity_host[element_id, 1] = [nj * self.nx + ni, 3]
                 else:
-                    self.boundary_tags_host[element_id, 1] = 2 # Right Tag
+                    self.boundary_tags_host[element_id, 1] = 4 # Right Tag (Outlet)
 
                 # Bottom (Face 0)
                 if j > 0:
@@ -169,7 +169,7 @@ class Mesh:
                     ni, nj = i, j + 1
                     self.connectivity_host[element_id, 2] = [nj * self.nx + ni, 0]
                 else:
-                    self.boundary_tags_host[element_id, 2] = 3 # Top Tag
+                    self.boundary_tags_host[element_id, 2] = 2 # Top Tag
 
     def _load_from_file(self, filename):
         """

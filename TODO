@@ -1,0 +1,29 @@
+- Vortex testcase should work with periodic boundary conditions []
+- The settings should have no default values. Simulation should fail if not set. []
+- Settings should be categorized. Develop a good concept. Every setting should have a good descripton. []
+- Make all testcases work []
+- Implement Logging concept []
+- Implement failure concept []
+- Implement Ai concept
+- Implement limiter. First investigate when a limiter is necessary
+- Rename testcases: Add 2D + Euler
+- Implement ai coding concept
+- Save the testing output after every bigger commit as zip
+- Implement possibility to restart Simulation
+- Implement something that will check the mesh before the simulation starts
+- Print error every saved timestep
+
+
+
+
+After the changes above:
+
+- Implement navier stokes
+- Implement two phase flow
+- Implement adaption (h+p)
+- Implement combustion
+- Implement boundary movement (linear + rotational)
+
+After the changes above
+
+- Implement: 3D

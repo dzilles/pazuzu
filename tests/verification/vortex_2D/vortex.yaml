@@ -1,28 +1,35 @@
-simulation:
-  type: "euler_2d"
-  t_final: 25.0
+case_name: "vortex_verification"
+mesh_file: "box.msh"
+initial_condition: "vortex"
+periodic_pairs:
+  - ["Left", "Right", "x"]
+  - ["Top", "Bottom", "y"]
+
+physics:
+  gamma: 1.4
+  gas_constant: 287.0
+
+numerics:
   cfl: 0.5
+  polynomial_order: 6
+  precision: "double"
+  flux_type: "hllc"
+  limiter: "none"
+  use_filtering: false
+  filter_alpha: 36.0
+  filter_order: 16
+
+io:
   output_dir: "output"
-  log_frequency: 1000
+  write_interval: 1.0
+
+simulation:
+  t_final: 25.0
+  ramp_time: 1.0
   device: "cpu"
   max_steps: 500000
 
-mesh:
-  type: "unstructured"
-  filename: "box.msh"
-  periodic_pairs:
-    - ["Left", "Right", "x"]
-    - ["Top", "Bottom", "y"]
-
-numerical:
-  polynomial_degree: 4
-
-initial_condition:
-  name: "vortex"
-
 boundaries:
-  # Tags 1,2,3,4 are now handled by periodic_pairs and will be cleared from bc_mask
-  # But we can keep them here, the solver setup will overwrite/ignore them if they are periodic.
   "Left":
     type: "outflow"
   "Right":

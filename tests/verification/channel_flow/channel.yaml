@@ -1,20 +1,26 @@
-simulation:
-  type: "euler_2d"
-  t_final: 2.0
+case_name: "channel_flow"
+mesh_file: "channel.msh"
+initial_condition: "uniform"
+
+physics:
+  gamma: 1.4
+  gas_constant: 287.0
+
+numerics:
   cfl: 0.05
+  polynomial_order: 4
+  flux_type: "rusanov"
+  limiter: "none"
+  use_filtering: false
+
+io:
   output_dir: "output"
-  log_frequency: 10
+  write_interval: 0.1
+
+simulation:
+  t_final: 2.0
+  ramp_time: 1.0
   device: "cpu"
-
-mesh:
-  type: "unstructured"
-  filename: "channel.msh"
-
-numerical:
-  polynomial_degree: 4
-
-initial_condition:
-  name: "uniform"
 
 boundaries:
   "WallTop":

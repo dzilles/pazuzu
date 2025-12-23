@@ -32,25 +32,31 @@ class TimeIntegrator:
         self.Q_stage1 = wp.zeros_like(solver.Q)
         self.Q_stage2 = wp.zeros_like(solver.Q)
         
-    def solve(self, t_final, CFL, log_frequency=10, writer=None, max_steps=None):
+    def solve(self, writer=None, max_steps=None):
         """
-        Executes the main time-stepping loop until t_final is reached.
+        Executes the main time-stepping loop.
 
         This method performs adaptive time-stepping based on the CFL condition provided by the solver.
-        It executes the 3-stage SSP-RK3 integration and handles data output.
+        Configuration parameters (t_final, CFL, write_interval) are retrieved from the solver's config.
 
         Args:
-            t_final (float): The final simulation time to reach.
-            CFL (float): The CFL number (Courant-Friedrichs-Lewy) for time step stability.
-            log_frequency (int, optional): Frequency of logging/saving steps (every N steps). Defaults to 10.
             writer (HDF5Writer, optional): Writer object for saving results. If None, saves .npz files.
             max_steps (int, optional): Maximum number of time steps to run. Defaults to None (unlimited).
 
         Raises:
             ValueError: If simulation instability (NaNs) is detected.
         """
+        # Retrieve configuration
+        if not self.solver.config:
+            raise ValueError("Solver configuration is missing.")
+            
+        t_final = self.solver.config.simulation.t_final
+        CFL = self.solver.config.numerics.cfl
+        write_interval = self.solver.config.io.write_interval
+        
         t = 0.0
         step = 0
+        last_output_time = 0.0
         output_steps_dir = "data/steps"
         
         # Ensure output directory exists if using legacy .npz output
@@ -66,6 +72,8 @@ class TimeIntegrator:
         Q = self.solver.Q
         rhs = self.solver.rhs
         
+        print(f"Starting simulation: t_final={t_final}, CFL={CFL}, write_interval={write_interval}")
+
         while t < t_final:
             if max_steps is not None and step >= max_steps:
                 print(f"Reached maximum steps ({max_steps}). Stopping.")
@@ -73,6 +81,16 @@ class TimeIntegrator:
                 
             # Calculate adaptive time step based on current flow state
             dt = self.solver.calculate_dt(CFL)
+            
+            # Adjust dt to hit t_final exactly
+            if t + dt > t_final:
+                dt = t_final - t
+            
+            dtype = self.solver.dtype_warp
+            
+            # Cast time variables to Warp scalars for kernel compatibility
+            dt_warp = dtype(dt)
+            t_warp = dtype(t)
             
             # --- SSP-RK3 Time Stepping Scheme ---
             # Stage 1: Q(1) = Q_n + dt * RHS(Q_n)
@@ -83,15 +101,19 @@ class TimeIntegrator:
                 with stream:
                     # Stage 1
                     self.solver.compute_rhs(t, dt, Q, rhs)
-                    wp.launch(kernel=ck.rk_stage_1, dim=Q.shape, inputs=[Q, rhs, dt], outputs=[self.Q_stage1], device=self.device)
+                    wp.launch(kernel=ck.rk_stage_1, dim=Q.shape, inputs=[Q, rhs, dt_warp], outputs=[self.Q_stage1], device=self.device)
                     
                     # Stage 2
+                    c1_s2 = dtype(0.75)
+                    c2_s2 = dtype(0.25)
                     self.solver.compute_rhs(t+dt, dt, self.Q_stage1, rhs)
-                    wp.launch(kernel=ck.rk_stage_2, dim=Q.shape, inputs=[Q, self.Q_stage1, rhs, dt], outputs=[self.Q_stage2], device=self.device)
+                    wp.launch(kernel=ck.rk_stage_2, dim=Q.shape, inputs=[Q, self.Q_stage1, rhs, dt_warp, self.Q_stage2, c1_s2, c2_s2], device=self.device)
                     
                     # Stage 3 (Final update)
+                    c1_s3 = dtype(1.0/3.0)
+                    c2_s3 = dtype(2.0/3.0)
                     self.solver.compute_rhs(t+0.5*dt, dt, self.Q_stage2, rhs)
-                    wp.launch(kernel=ck.rk_stage_3, dim=Q.shape, inputs=[Q, self.Q_stage2, rhs, dt], outputs=[Q], device=self.device)
+                    wp.launch(kernel=ck.rk_stage_3, dim=Q.shape, inputs=[Q, self.Q_stage2, rhs, dt_warp, Q, c1_s3, c2_s3], device=self.device)
                 
                 stream.synchronize()
             else:
@@ -99,23 +121,38 @@ class TimeIntegrator:
                 
                 # Stage 1
                 self.solver.compute_rhs(t, dt, Q, rhs)
-                wp.launch(kernel=ck.rk_stage_1, dim=Q.shape, inputs=[Q, rhs, dt], outputs=[self.Q_stage1], device=self.device)
+                wp.launch(kernel=ck.rk_stage_1, dim=Q.shape, inputs=[Q, rhs, dt_warp], outputs=[self.Q_stage1], device=self.device)
                 
                 # Stage 2
+                c1_s2 = dtype(0.75)
+                c2_s2 = dtype(0.25)
                 self.solver.compute_rhs(t+dt, dt, self.Q_stage1, rhs)
-                wp.launch(kernel=ck.rk_stage_2, dim=Q.shape, inputs=[Q, self.Q_stage1, rhs, dt], outputs=[self.Q_stage2], device=self.device)
+                wp.launch(kernel=ck.rk_stage_2, dim=Q.shape, inputs=[Q, self.Q_stage1, rhs, dt_warp, self.Q_stage2, c1_s2, c2_s2], device=self.device)
                 
                 # Stage 3
+                c1_s3 = dtype(1.0/3.0)
+                c2_s3 = dtype(2.0/3.0)
                 self.solver.compute_rhs(t+0.5*dt, dt, self.Q_stage2, rhs)
-                wp.launch(kernel=ck.rk_stage_3, dim=Q.shape, inputs=[Q, self.Q_stage2, rhs, dt], outputs=[Q], device=self.device)
+                wp.launch(kernel=ck.rk_stage_3, dim=Q.shape, inputs=[Q, self.Q_stage2, rhs, dt_warp, Q, c1_s3, c2_s3], device=self.device)
                 
                 wp.synchronize()
             
+            # Post-step hook (e.g., for filtering)
+            if hasattr(self.solver, 'post_step'):
+                self.solver.post_step()
+
             t += dt
             step += 1
             
             # --- Logging and Output ---
-            if step % log_frequency == 0:
+            # Basic logging every 10 steps or if output is due
+            should_write = (t - last_output_time) >= write_interval or t >= t_final or step == 1
+
+            if step % 10 == 0 or should_write:
+                 print(f"Step: {step}, t = {t:.4f} / {t_final}, dt = {dt:.3e}")
+
+            if should_write:
+                last_output_time = t
                 # Check for NaNs to detect instability early
                 q_np = Q.numpy()
                 if np.isnan(q_np).any():
@@ -128,5 +165,3 @@ class TimeIntegrator:
                 else:
                     # Legacy fallback
                     np.savez(f"{output_steps_dir}/step_{step:04d}.npz", q=q_np)
-                
-                print(f"Step: {step}, t = {t:.4f} / {t_final}, dt = {dt:.3e}")

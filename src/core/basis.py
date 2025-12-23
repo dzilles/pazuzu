@@ -67,9 +67,11 @@ class Basis:
         LIFT = self._create_lift_matrix(face_nodes, M_face, inv_mass_matrix_diag)
         
         # Transfer data to Warp arrays (cast to target dtype here)
+        vec2_type = wp.vec2d if dtype == wp.float64 else wp.vec2
+        
         self.nodes_1d = wp.array(nodes_1d, dtype=dtype, device=device)
         self.weights_1d = wp.array(weights_1d, dtype=dtype, device=device)
-        self.nodes_2d = wp.array(nodes_2d, dtype=wp.vec2, device=device)
+        self.nodes_2d = wp.array(nodes_2d, dtype=vec2_type, device=device)
         self.face_nodes = wp.array(face_nodes, dtype=wp.int32, device=device)
         
         self.D1D = wp.array(D1D, dtype=dtype, device=device)
@@ -79,6 +81,50 @@ class Basis:
         
         # Useful for CFL condition estimation
         self.min_node_dist = np.min(np.diff(nodes_1d))
+        
+        # Filter Matrix (lazy initialization)
+        self.filter_matrix = None
+
+    def compute_filter_matrix(self, alpha, order):
+        """
+        Computes and initializes the spectral viscosity filter matrix.
+        
+        Constructs the 1D filter matrix F1d = V * Lambda * V^(-1), 
+        where V is the Vandermonde matrix of Legendre polynomials,
+        and Lambda is the diagonal filter matrix.
+        Then computes the 2D tensor product F2d = F1d (x) F1d.
+        
+        Args:
+            alpha (float): Filter strength parameter.
+            order (int): Filter order parameter.
+        """
+        # 1. Construct 1D Vandermonde Matrix V
+        # V[i, j] = P_j(x_i) where x_i are the GLL nodes
+        nodes = self.nodes_1d.numpy()
+        V = np.zeros((self.N1, self.N1))
+        
+        # Use unnormalized Legendre polynomials as the basis functions P_j
+        for j in range(self.N1):
+            P_j = legendre(j)
+            V[:, j] = P_j(nodes)
+            
+        # 2. Construct Diagonal Filter Matrix Lambda
+        # sigma_k = exp(-alpha * (k/N)^order)
+        Lambda = np.zeros((self.N1, self.N1))
+        for k in range(self.N1):
+            sigma = np.exp(-alpha * ((k / self.N) ** order))
+            Lambda[k, k] = sigma
+            
+        # 3. Compute 1D Filter Matrix F1d = V * Lambda * V^(-1)
+        V_inv = np.linalg.inv(V)
+        F1d = V @ Lambda @ V_inv
+        
+        # 4. Compute 2D Filter Matrix via Tensor Product
+        # F2d = F1d (kron) F1d
+        F2d = np.kron(F1d, F1d)
+        
+        # 5. Upload to Device
+        self.filter_matrix = wp.array(F2d, dtype=self.dtype, device=self.device)
 
     def _gauss_lobatto_quadrature(self, N):
         """
