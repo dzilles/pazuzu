@@ -44,6 +44,12 @@ class SimulationState:
         if use_filtering:
             self.filter_buffer = wp.zeros(shape, dtype=dtype, device=device)
             
+        # Limiter Buffers (Per-Element)
+        num_elements = shape[0]
+        self.q_avg = wp.zeros(num_elements, dtype=dtype, device=device)
+        self.q_min = wp.zeros(num_elements, dtype=dtype, device=device)
+        self.q_max = wp.zeros(num_elements, dtype=dtype, device=device)
+
         # Scalar State
         self.t = 0.0
         self.step = 0

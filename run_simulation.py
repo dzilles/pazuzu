@@ -1,6 +1,7 @@
 from src.geometry.mesh import Mesh
 from src.core.basis import Basis
-from src.physics.euler_2d import Euler2DSolver
+from src.core.solver_builder import SolverBuilder
+from src.numerics.time_steppers import RK4Stepper
 from src.core.driver import TimeIntegrator
 from src.io.data_writer import HDF5Writer
 from src.physics import initial_conditions as ic
@@ -19,6 +20,8 @@ def get_initial_condition_func(name):
         return ic.uniform
     elif name == "rest":
         return ic.rest
+    elif name == "sod_shock_tube":
+        return ic.sod_shock_tube
     else:
         raise ValueError(f"Unknown initial condition: {name}")
 
@@ -86,8 +89,9 @@ def main(config_path):
     print(f"Initializing Solver with IC: {ic_name}...")
     ic_func = get_initial_condition_func(ic_name)
     
-    # Instantiate Euler2DSolver with typed config
-    solver = Euler2DSolver(mesh, basis, config=cfg)
+    # Use SolverBuilder to create the solver instance
+    builder = SolverBuilder(mesh, basis, config=cfg)
+    solver = builder.build()
     solver.initialize(ic_func)
 
     # --- Output Directory ---
@@ -112,8 +116,9 @@ def main(config_path):
     # --- Run Simulation ---
     print(f"Starting simulation on device '{device}'...")
     
-    # Instantiate Driver
-    driver = TimeIntegrator(solver)
+    # Instantiate Stepper and Driver
+    stepper = RK4Stepper(device=device)
+    driver = TimeIntegrator(solver, stepper)
     # driver.solve now retrieves t_final, CFL, write_interval from solver.config
     driver.solve(writer=writer, max_steps=cfg.simulation.max_steps)
     

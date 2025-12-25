@@ -9,6 +9,10 @@ class FluxType(str, Enum):
     HLLC = "hllc"
     ROE = "roe"
 
+class SolverType(str, Enum):
+    EULER_2D = "euler_2d"
+    NAVIER_STOKES_2D = "navier_stokes_2d"
+
 class LimiterType(str, Enum):
     NONE = "none"
     BARTH_JESPERSEN = "barth_jespersen"
@@ -40,6 +44,7 @@ class SimulationConfig(BaseModel):
 
 class PazuzuConfig(BaseModel):
     case_name: str = Field(default="simulation", description="Name of the simulation case")
+    solver_type: SolverType = Field(default=SolverType.EULER_2D, description="Type of solver to use")
     mesh_file: str = Field(..., description="Path to the mesh file (.msh)")
     initial_condition: str = Field(default="vortex", description="Initial condition name")
     periodic_pairs: List[List[Union[str, int]]] = Field(default_factory=list, description="Periodic boundary pairs [Tag1, Tag2, Axis]")

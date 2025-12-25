@@ -77,3 +77,22 @@ def rest(x, y, t=0.0):
         tuple: (rho, u, v, p) with rho=1.0, u=0.0, v=0.0, p=1.0.
     """
     return 1.0, 0.0, 0.0, 1.0
+
+def sod_shock_tube(x, y, t=0.0):
+    """
+    Computes the initial state for the Sod Shock Tube problem.
+
+    Args:
+        x (float): Physical x-coordinate.
+        y (float): Physical y-coordinate.
+        t (float, optional): Simulation time. Defaults to 0.0.
+
+    Returns:
+        tuple: (rho, u, v, p)
+    """
+    if x < 0.5:
+        # Left State
+        return 1.0, 0.0, 0.0, 1.0
+    else:
+        # Right State
+        return 0.125, 0.0, 0.0, 0.1

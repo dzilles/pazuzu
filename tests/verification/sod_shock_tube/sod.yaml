@@ -1,0 +1,33 @@
+case_name: "sod_shock_tube"
+solver_type: "euler_2d"
+mesh_file: "output/sod.msh"
+initial_condition: "sod_shock_tube"
+
+physics:
+  gamma: 1.4
+
+numerics:
+  cfl: 0.1
+  polynomial_order: 3
+  precision: "double"
+  flux_type: "hllc"
+  limiter: "barth_jespersen"
+
+io:
+  output_dir: "output"
+  write_interval: 0.05
+
+simulation:
+  t_final: 0.2
+  device: "cpu"
+  max_steps: 2000
+
+boundaries:
+  "Left":
+    type: "extrapolation"
+  "Right":
+    type: "extrapolation"
+  "Top":
+    type: "slip_wall"
+  "Bottom":
+    type: "slip_wall"

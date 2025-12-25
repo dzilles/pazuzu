@@ -1,27 +1,29 @@
 import warp as wp
 import os
 import numpy as np
-from src.kernels import common_kernels as ck
 
 class TimeIntegrator:
     """
     Manages the explicit time integration loop for the simulation.
 
-    This class handles the time-stepping process using the Classic Runge-Kutta 4 (RK4) scheme.
+    This class handles the time-stepping process using a provided TimeStepper strategy.
     It orchestrates calls to the solver's RHS computation and handles I/O operations at specified intervals.
 
     Attributes:
         solver (BaseSolver): The physics solver instance (e.g., Euler2DSolver).
+        stepper (TimeStepper): The time-stepping algorithm strategy.
         device (str): The Warp compute device ("cpu" or "cuda").
     """
-    def __init__(self, solver):
+    def __init__(self, solver, stepper):
         """
         Initializes the TimeIntegrator.
 
         Args:
             solver (BaseSolver): An initialized solver instance containing the state Q and rhs buffer.
+            stepper (TimeStepper): A time-stepper instance (e.g., RK4Stepper).
         """
         self.solver = solver
+        self.stepper = stepper
         self.device = solver.device
         
         # Buffers are now managed by solver.state
@@ -70,9 +72,6 @@ class TimeIntegrator:
             
         # Direct references to solver's main state arrays for clarity
         Q = state.q
-        rhs = state.rhs
-        Q_old = state.q_old
-        Q_temp = state.q_temp
         
         print(f"Starting simulation: t_final={t_final}, CFL={CFL}, write_interval={write_interval}")
 
@@ -88,105 +87,8 @@ class TimeIntegrator:
             if t + dt > t_final:
                 dt = t_final - t
             
-            dtype = self.solver.dtype_warp
-            
-            # Cast time variables to Warp scalars for kernel compatibility
-            dt_warp = dtype(dt)
-            t_warp = dtype(t)
-            
-            # --- Classic RK4 Time Stepping Scheme ---
-            # yn+1 = yn + dt/6 * (k1 + 2k2 + 2k3 + k4)
-            
-            if use_stream:
-                with stream:
-                    # Start of step: Copy Q (yn) to Q_old
-                    wp.copy(Q_old, Q)
-                    
-                    # Stage 1: k1
-                    # Input: Q_old (yn)
-                    # Compute k1 = f(t, Q_old)
-                    # Accumulate: Q (initially yn) += dt * k1/6 -> yn + dt*k1/6
-                    # Prepare next: Q_temp = Q_old + 0.5 * dt * k1
-                    self.solver.compute_rhs(t, dt, Q_old, rhs)
-                    weight_accum_s1 = dtype(1.0/6.0)
-                    weight_next_s1 = dtype(0.5)
-                    wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                              inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s1, weight_next_s1], 
-                              device=self.device)
-                    
-                    # Stage 2: k2
-                    # Input: Q_temp (yn + 0.5*dt*k1)
-                    # Compute k2 = f(t + 0.5*dt, Q_temp)
-                    # Accumulate: Q += dt * 2*k2/6 (k2/3) -> yn + dt*k1/6 + dt*k2/3
-                    # Prepare next: Q_temp = Q_old + 0.5 * dt * k2
-                    self.solver.compute_rhs(t + 0.5*dt, dt, Q_temp, rhs)
-                    weight_accum_s2 = dtype(1.0/3.0)
-                    weight_next_s2 = dtype(0.5)
-                    wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                              inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s2, weight_next_s2], 
-                              device=self.device)
-                    
-                    # Stage 3: k3
-                    # Input: Q_temp (yn + 0.5*dt*k2)
-                    # Compute k3 = f(t + 0.5*dt, Q_temp)
-                    # Accumulate: Q += dt * 2*k3/6 (k3/3) -> yn + dt*k1/6 + dt*k2/3 + dt*k3/3
-                    # Prepare next: Q_temp = Q_old + 1.0 * dt * k3
-                    self.solver.compute_rhs(t + 0.5*dt, dt, Q_temp, rhs)
-                    weight_accum_s3 = dtype(1.0/3.0)
-                    weight_next_s3 = dtype(1.0)
-                    wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                              inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s3, weight_next_s3], 
-                              device=self.device)
-                              
-                    # Stage 4: k4
-                    # Input: Q_temp (yn + dt*k3)
-                    # Compute k4 = f(t + dt, Q_temp)
-                    # Accumulate: Q += dt * k4/6 -> yn + dt/6*(k1 + 2k2 + 2k3 + k4)
-                    self.solver.compute_rhs(t + dt, dt, Q_temp, rhs)
-                    weight_accum_s4 = dtype(1.0/6.0)
-                    wp.launch(kernel=ck.rk4_final_update, dim=Q.shape, 
-                              inputs=[rhs, Q, dt_warp, weight_accum_s4], 
-                              device=self.device)
-                
-                stream.synchronize()
-            else:
-                # Synchronous execution (CPU)
-                
-                # Start of step: Copy Q (yn) to Q_old
-                wp.copy(Q_old, Q)
-                
-                # Stage 1
-                self.solver.compute_rhs(t, dt, Q_old, rhs)
-                weight_accum_s1 = dtype(1.0/6.0)
-                weight_next_s1 = dtype(0.5)
-                wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                          inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s1, weight_next_s1], 
-                          device=self.device)
-                
-                # Stage 2
-                self.solver.compute_rhs(t + 0.5*dt, dt, Q_temp, rhs)
-                weight_accum_s2 = dtype(1.0/3.0)
-                weight_next_s2 = dtype(0.5)
-                wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                          inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s2, weight_next_s2], 
-                          device=self.device)
-                
-                # Stage 3
-                self.solver.compute_rhs(t + 0.5*dt, dt, Q_temp, rhs)
-                weight_accum_s3 = dtype(1.0/3.0)
-                weight_next_s3 = dtype(1.0)
-                wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                          inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s3, weight_next_s3], 
-                          device=self.device)
-                          
-                # Stage 4
-                self.solver.compute_rhs(t + dt, dt, Q_temp, rhs)
-                weight_accum_s4 = dtype(1.0/6.0)
-                wp.launch(kernel=ck.rk4_final_update, dim=Q.shape, 
-                          inputs=[rhs, Q, dt_warp, weight_accum_s4], 
-                          device=self.device)
-                
-                wp.synchronize()
+            # --- Time Stepping Strategy ---
+            self.stepper.step(self.solver, t, dt)
             
             # Post-step hook (e.g., for filtering)
             if hasattr(self.solver, 'post_step'):

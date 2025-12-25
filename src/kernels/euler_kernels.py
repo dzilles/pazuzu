@@ -303,3 +303,178 @@ def compute_max_wave_speed(
     
     # Update global maximum atomically
     wp.atomic_max(max_speed, 0, wave_speed)
+
+# --- Limiter Kernels ---
+
+@wp.kernel
+def compute_cell_averages(
+    q: wp.array(dtype=Any, ndim=2),
+    q_avg: wp.array(dtype=Any, ndim=1),
+    weights: wp.array(dtype=Any, ndim=1),
+    J: wp.array(dtype=Any, ndim=2),
+    Np: wp.int32,
+    params: Any
+):
+    """
+    Computes the cell-average state for each element.
+    Avg = (Sum Q_j * w_j * J_j) / (Sum w_j * J_j)
+    """
+    e = wp.tid()
+    
+    # Use template to get correct zero vector and zero scalar of the same precision
+    zero_vec = q[e, 0] - q[e, 0]
+    zero_scalar = J[e, 0] - J[e, 0]
+    
+    total_q = zero_vec
+    total_vol = zero_scalar
+    
+    for j in range(Np):
+        w_j = weights[j]
+        J_j = J[e, j]
+        vol_j = w_j * J_j
+        
+        total_q += q[e, j] * vol_j
+        total_vol += vol_j
+        
+    q_avg[e] = total_q / total_vol
+
+@wp.kernel
+def compute_neighbor_min_max(
+    q_avg: wp.array(dtype=Any, ndim=1),
+    q_min: wp.array(dtype=Any, ndim=1),
+    q_max: wp.array(dtype=Any, ndim=1),
+    connectivity: wp.array(dtype=wp.int32, ndim=2),
+    params: Any
+):
+    """
+    Finds the minimum and maximum cell averages among an element and its neighbors.
+    """
+    e = wp.tid()
+    
+    avg_e = q_avg[e]
+    
+    min_val = avg_e
+    max_val = avg_e
+    
+    for face_idx in range(4):
+        neighbor_e = connectivity[e, face_idx]
+        if neighbor_e >= 0:
+            avg_nb = q_avg[neighbor_e]
+            
+            # Warp vector min/max
+            # Note: For vec4, we want element-wise min/max
+            for c in range(4):
+                if avg_nb[c] < min_val[c]:
+                    min_val = bc.set_vec4_generic(min_val, c, avg_nb[c])
+                if avg_nb[c] > max_val[c]:
+                    max_val = bc.set_vec4_generic(max_val, c, avg_nb[c])
+                    
+    q_min[e] = min_val
+    q_max[e] = max_val
+
+@wp.func
+def minmod(a: Any, b: Any, c: Any):
+    """Standard 3-argument minmod function."""
+    zero = a - a
+    res = zero
+    if a > zero and b > zero and c > zero:
+        res = wp.min(a, wp.min(b, c))
+    elif a < zero and b < zero and c < zero:
+        res = wp.max(a, wp.max(b, c))
+    return res
+
+@wp.kernel
+def apply_minmod_limiter(
+    q: wp.array(dtype=Any, ndim=2),
+    q_avg: wp.array(dtype=Any, ndim=1),
+    connectivity: wp.array(dtype=wp.int32, ndim=2),
+    Np: wp.int32,
+    params: Any
+):
+    """
+    Applies a simple Minmod limiter (element-wise).
+    This is a simplified version that limits the cell difference from the average.
+    """
+    e = wp.tid()
+    
+    avg_e = q_avg[e]
+    zero_vec = avg_e - avg_e
+    
+    # Simple 1D-like minmod for quads (Simplified)
+    # We look at neighbor averages to estimate slopes
+    avg_l = avg_e
+    avg_r = avg_e
+    avg_b = avg_e
+    avg_t = avg_e
+    
+    # Face 3: Left, Face 1: Right, Face 0: Bottom, Face 2: Top
+    if connectivity[e, 3] >= 0: avg_l = q_avg[connectivity[e, 3]]
+    if connectivity[e, 1] >= 0: avg_r = q_avg[connectivity[e, 1]]
+    if connectivity[e, 0] >= 0: avg_b = q_avg[connectivity[e, 0]]
+    if connectivity[e, 2] >= 0: avg_t = q_avg[connectivity[e, 2]]
+    
+    for j in range(Np):
+        q_j = q[e, j]
+        diff = q_j - avg_e
+        
+        limited_q_j = avg_e
+        for c in range(4):
+            # minmod(q_j - avg_e, avg_e - avg_left, avg_right - avg_e)
+            # This is extremely simplified and assumes quasi-1D behavior for each node.
+            # In a true 2D limiter, one would use the gradient.
+            val_c = minmod(diff[c], avg_e[c] - avg_l[c], avg_r[c] - avg_e[c])
+            # Also check Y direction
+            val_c = minmod(val_c, avg_e[c] - avg_b[c], avg_t[c] - avg_e[c])
+            
+            limited_q_j = bc.set_vec4_generic(limited_q_j, c, avg_e[c] + val_c)
+            
+        q[e, j] = limited_q_j
+
+@wp.kernel
+def apply_barth_jespersen_limiter(
+    q: wp.array(dtype=Any, ndim=2),
+    q_avg: wp.array(dtype=Any, ndim=1),
+    q_min: wp.array(dtype=Any, ndim=1),
+    q_max: wp.array(dtype=Any, ndim=1),
+    Np: wp.int32,
+    params: Any
+):
+    """
+    Applies the Barth-Jespersen limiter to the nodal values.
+    Computes a scaling factor alpha_e such that the limited values are within [q_min, q_max].
+    """
+    e = wp.tid()
+    
+    avg_e = q_avg[e]
+    min_e = q_min[e]
+    max_e = q_max[e]
+    
+    # Use template to get correct zero/one scalars of the same precision
+    zero_scalar = q_avg[e][0] - q_avg[e][0]
+    one_scalar = params.one
+    
+    # Initialize alpha to 1.0 (unlimited)
+    alpha = one_scalar
+    eps = params.rho_floor * params.rho_floor
+    
+    for j in range(Np):
+        q_j = q[e, j]
+        diff = q_j - avg_e
+        
+        for c in range(4):
+            if diff[c] > eps:
+                # Potential overshoot
+                ratio = (max_e[c] - avg_e[c]) / diff[c]
+                alpha = wp.min(alpha, ratio)
+            elif diff[c] < -eps:
+                # Potential undershoot
+                ratio = (min_e[c] - avg_e[c]) / diff[c]
+                alpha = wp.min(alpha, ratio)
+                
+    # Safeguard alpha
+    alpha = wp.clamp(alpha, zero_scalar, one_scalar)
+    
+    # Apply limiting
+    if alpha < one_scalar:
+        for j in range(Np):
+            q[e, j] = avg_e + alpha * (q[e, j] - avg_e)

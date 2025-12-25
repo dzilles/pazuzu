@@ -90,6 +90,7 @@ class Euler2DSolver(BaseSolver):
         weights_2d = np.kron(self.basis.weights_1d.numpy(), self.basis.weights_1d.numpy())
         M_inv_diag_host = 1.0 / weights_2d
         self.M_inv_diag = wp.array(M_inv_diag_host, dtype=self.dtype_warp, device=self.device)
+        self.weights_2d = wp.array(weights_2d, dtype=self.dtype_warp, device=self.device)
         
         # Buffer for global max wave speed reduction
         self.max_wave_speed = wp.zeros(1, dtype=self.dtype_warp, device=self.device)
@@ -254,9 +255,52 @@ class Euler2DSolver(BaseSolver):
             # Copy back: FilterBuffer -> Q
             wp.copy(self.state.q, self.state.filter_buffer)
 
+    def apply_limiter(self):
+        """
+        Applies the configured limiter to the solution state.
+        Used for shock capturing and ensuring physical bounds (positivity).
+        """
+        if self.cfg.numerics.limiter == LimiterType.NONE:
+            return
+
+        # 1. Compute Cell Averages
+        wp.launch(
+            kernel=wk.compute_cell_averages,
+            dim=self.mesh.num_elements,
+            inputs=[self.state.q, self.state.q_avg, self.weights_2d, self.mesh.J, self.basis.Np, self.params],
+            device=self.device
+        )
+
+        if self.cfg.numerics.limiter == LimiterType.BARTH_JESPERSEN:
+            # 2. Compute Neighbor Min/Max
+            wp.launch(
+                kernel=wk.compute_neighbor_min_max,
+                dim=self.mesh.num_elements,
+                inputs=[self.state.q_avg, self.state.q_min, self.state.q_max, self.mesh.connectivity, self.params],
+                device=self.device
+            )
+            # 3. Apply Barth-Jespersen
+            wp.launch(
+                kernel=wk.apply_barth_jespersen_limiter,
+                dim=self.mesh.num_elements,
+                inputs=[self.state.q, self.state.q_avg, self.state.q_min, self.state.q_max, self.basis.Np, self.params],
+                device=self.device
+            )
+        elif self.cfg.numerics.limiter == LimiterType.MINMOD:
+            # Apply Minmod
+            wp.launch(
+                kernel=wk.apply_minmod_limiter,
+                dim=self.mesh.num_elements,
+                inputs=[self.state.q, self.state.q_avg, self.mesh.connectivity, self.basis.Np, self.params],
+                device=self.device
+            )
+
     def post_step(self):
         """
         Hook called by the driver after each full time step.
         """
         if self.cfg.numerics.use_filtering:
             self.filter_solution()
+            
+        if self.cfg.numerics.limiter != LimiterType.NONE:
+            self.apply_limiter()

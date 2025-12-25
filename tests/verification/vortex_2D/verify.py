@@ -24,15 +24,12 @@ def run_simulation():
     
     cmd = [sys.executable, "run_simulation.py", config_path]
     print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=root_dir, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        print("Simulation failed!")
-        print("STDOUT:", result.stdout)
-        print("STDERR:", result.stderr)
-        sys.exit(1)
-    else:
+    try:
+        subprocess.run(cmd, cwd=root_dir, check=True)
         print("Simulation finished successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Simulation failed: {e}")
+        sys.exit(1)
 
 def periodic_vortex(x, y, t=0.0, Lx=10.0, Ly=10.0):
     """

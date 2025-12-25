@@ -21,6 +21,24 @@ def make_vec4_generic(x: wp.float64, y: wp.float64, z: wp.float64, w: wp.float64
     return wp.vec4d(x, y, z, w)
 
 @wp.func
+def set_vec4_generic(v: wp.vec4, i: int, val: wp.float32):
+    res = v
+    if i == 0: res = wp.vec4(val, v[1], v[2], v[3])
+    elif i == 1: res = wp.vec4(v[0], val, v[2], v[3])
+    elif i == 2: res = wp.vec4(v[0], v[1], val, v[3])
+    elif i == 3: res = wp.vec4(v[0], v[1], v[2], val)
+    return res
+
+@wp.func
+def set_vec4_generic(v: wp.vec4d, i: int, val: wp.float64):
+    res = v
+    if i == 0: res = wp.vec4d(val, v[1], v[2], v[3])
+    elif i == 1: res = wp.vec4d(v[0], val, v[2], v[3])
+    elif i == 2: res = wp.vec4d(v[0], v[1], val, v[3])
+    elif i == 3: res = wp.vec4d(v[0], v[1], v[2], val)
+    return res
+
+@wp.func
 def get_freestream_state(t: Any, ramp_time: Any, template_q: Any, params: Any):
     """Returns the freestream state with ramping (rho=1, u=ramped, v=0, p=1)."""
     zero = template_q[0] - template_q[0]
