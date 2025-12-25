@@ -18,8 +18,7 @@ class BaseSolver(ABC):
         basis (Basis): The polynomial basis and operators.
         device (str): The compute device ("cpu" or "cuda").
         config (PazuzuConfig, optional): Configuration object.
-        Q (wp.array): The state vector array (initialized by concrete classes).
-        rhs (wp.array): The right-hand side buffer array (initialized by concrete classes).
+        state (SimulationState): The simulation state container (initialized by concrete classes).
     """
     def __init__(self, mesh, basis, config: Optional["PazuzuConfig"] = None):
         """
@@ -36,8 +35,7 @@ class BaseSolver(ABC):
         self.config = config
         
         # State variables (to be initialized by concrete class)
-        self.Q = None
-        self.rhs = None
+        self.state = None
     
     @abstractmethod
     def initialize(self, initial_condition_func):

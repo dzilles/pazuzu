@@ -102,12 +102,12 @@ def main(config_path):
         os.path.join(output_dir, "results.h5"), 
         mesh,
         basis=solver.basis,
-        node_coords=(solver.x_host, solver.y_host)
+        node_coords=(solver.mesh.x_host, solver.mesh.y_host)
     )
 
     # Save Initial State
     print("Saving initial state...")
-    writer.write_step(0, 0.0, solver.Q.numpy())
+    writer.write_step(0, 0.0, solver.state.numpy())
 
     # --- Run Simulation ---
     print(f"Starting simulation on device '{device}'...")

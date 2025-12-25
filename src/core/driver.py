@@ -13,8 +13,6 @@ class TimeIntegrator:
     Attributes:
         solver (BaseSolver): The physics solver instance (e.g., Euler2DSolver).
         device (str): The Warp compute device ("cpu" or "cuda").
-        Q_old (wp.array): Buffer to store the state at the start of the time step (yn).
-        Q_temp (wp.array): Buffer for intermediate RK stages.
     """
     def __init__(self, solver):
         """
@@ -26,10 +24,7 @@ class TimeIntegrator:
         self.solver = solver
         self.device = solver.device
         
-        # Allocate Runge-Kutta intermediate buffers
-        # Assumes the solver has already initialized its state vector Q
-        self.Q_old = wp.zeros_like(solver.Q)
-        self.Q_temp = wp.zeros_like(solver.Q)
+        # Buffers are now managed by solver.state
         
     def solve(self, writer=None, max_steps=None):
         """
@@ -53,8 +48,14 @@ class TimeIntegrator:
         CFL = self.solver.config.numerics.cfl
         write_interval = self.solver.config.io.write_interval
         
-        t = 0.0
-        step = 0
+        # Use state from solver
+        state = self.solver.state
+        state.t = 0.0
+        state.step = 0
+        
+        t = state.t
+        step = state.step
+        
         last_output_time = 0.0
         output_steps_dir = "data/steps"
         
@@ -68,8 +69,10 @@ class TimeIntegrator:
             stream = wp.Stream(device=self.device)
             
         # Direct references to solver's main state arrays for clarity
-        Q = self.solver.Q
-        rhs = self.solver.rhs
+        Q = state.q
+        rhs = state.rhs
+        Q_old = state.q_old
+        Q_temp = state.q_temp
         
         print(f"Starting simulation: t_final={t_final}, CFL={CFL}, write_interval={write_interval}")
 
@@ -97,18 +100,18 @@ class TimeIntegrator:
             if use_stream:
                 with stream:
                     # Start of step: Copy Q (yn) to Q_old
-                    wp.copy(self.Q_old, Q)
+                    wp.copy(Q_old, Q)
                     
                     # Stage 1: k1
                     # Input: Q_old (yn)
                     # Compute k1 = f(t, Q_old)
                     # Accumulate: Q (initially yn) += dt * k1/6 -> yn + dt*k1/6
                     # Prepare next: Q_temp = Q_old + 0.5 * dt * k1
-                    self.solver.compute_rhs(t, dt, self.Q_old, rhs)
+                    self.solver.compute_rhs(t, dt, Q_old, rhs)
                     weight_accum_s1 = dtype(1.0/6.0)
                     weight_next_s1 = dtype(0.5)
                     wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                              inputs=[self.Q_old, rhs, Q, self.Q_temp, dt_warp, weight_accum_s1, weight_next_s1], 
+                              inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s1, weight_next_s1], 
                               device=self.device)
                     
                     # Stage 2: k2
@@ -116,11 +119,11 @@ class TimeIntegrator:
                     # Compute k2 = f(t + 0.5*dt, Q_temp)
                     # Accumulate: Q += dt * 2*k2/6 (k2/3) -> yn + dt*k1/6 + dt*k2/3
                     # Prepare next: Q_temp = Q_old + 0.5 * dt * k2
-                    self.solver.compute_rhs(t + 0.5*dt, dt, self.Q_temp, rhs)
+                    self.solver.compute_rhs(t + 0.5*dt, dt, Q_temp, rhs)
                     weight_accum_s2 = dtype(1.0/3.0)
                     weight_next_s2 = dtype(0.5)
                     wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                              inputs=[self.Q_old, rhs, Q, self.Q_temp, dt_warp, weight_accum_s2, weight_next_s2], 
+                              inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s2, weight_next_s2], 
                               device=self.device)
                     
                     # Stage 3: k3
@@ -128,18 +131,18 @@ class TimeIntegrator:
                     # Compute k3 = f(t + 0.5*dt, Q_temp)
                     # Accumulate: Q += dt * 2*k3/6 (k3/3) -> yn + dt*k1/6 + dt*k2/3 + dt*k3/3
                     # Prepare next: Q_temp = Q_old + 1.0 * dt * k3
-                    self.solver.compute_rhs(t + 0.5*dt, dt, self.Q_temp, rhs)
+                    self.solver.compute_rhs(t + 0.5*dt, dt, Q_temp, rhs)
                     weight_accum_s3 = dtype(1.0/3.0)
                     weight_next_s3 = dtype(1.0)
                     wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                              inputs=[self.Q_old, rhs, Q, self.Q_temp, dt_warp, weight_accum_s3, weight_next_s3], 
+                              inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s3, weight_next_s3], 
                               device=self.device)
                               
                     # Stage 4: k4
                     # Input: Q_temp (yn + dt*k3)
                     # Compute k4 = f(t + dt, Q_temp)
                     # Accumulate: Q += dt * k4/6 -> yn + dt/6*(k1 + 2k2 + 2k3 + k4)
-                    self.solver.compute_rhs(t + dt, dt, self.Q_temp, rhs)
+                    self.solver.compute_rhs(t + dt, dt, Q_temp, rhs)
                     weight_accum_s4 = dtype(1.0/6.0)
                     wp.launch(kernel=ck.rk4_final_update, dim=Q.shape, 
                               inputs=[rhs, Q, dt_warp, weight_accum_s4], 
@@ -150,34 +153,34 @@ class TimeIntegrator:
                 # Synchronous execution (CPU)
                 
                 # Start of step: Copy Q (yn) to Q_old
-                wp.copy(self.Q_old, Q)
+                wp.copy(Q_old, Q)
                 
                 # Stage 1
-                self.solver.compute_rhs(t, dt, self.Q_old, rhs)
+                self.solver.compute_rhs(t, dt, Q_old, rhs)
                 weight_accum_s1 = dtype(1.0/6.0)
                 weight_next_s1 = dtype(0.5)
                 wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                          inputs=[self.Q_old, rhs, Q, self.Q_temp, dt_warp, weight_accum_s1, weight_next_s1], 
+                          inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s1, weight_next_s1], 
                           device=self.device)
                 
                 # Stage 2
-                self.solver.compute_rhs(t + 0.5*dt, dt, self.Q_temp, rhs)
+                self.solver.compute_rhs(t + 0.5*dt, dt, Q_temp, rhs)
                 weight_accum_s2 = dtype(1.0/3.0)
                 weight_next_s2 = dtype(0.5)
                 wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                          inputs=[self.Q_old, rhs, Q, self.Q_temp, dt_warp, weight_accum_s2, weight_next_s2], 
+                          inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s2, weight_next_s2], 
                           device=self.device)
                 
                 # Stage 3
-                self.solver.compute_rhs(t + 0.5*dt, dt, self.Q_temp, rhs)
+                self.solver.compute_rhs(t + 0.5*dt, dt, Q_temp, rhs)
                 weight_accum_s3 = dtype(1.0/3.0)
                 weight_next_s3 = dtype(1.0)
                 wp.launch(kernel=ck.rk4_stage_update, dim=Q.shape, 
-                          inputs=[self.Q_old, rhs, Q, self.Q_temp, dt_warp, weight_accum_s3, weight_next_s3], 
+                          inputs=[Q_old, rhs, Q, Q_temp, dt_warp, weight_accum_s3, weight_next_s3], 
                           device=self.device)
                           
                 # Stage 4
-                self.solver.compute_rhs(t + dt, dt, self.Q_temp, rhs)
+                self.solver.compute_rhs(t + dt, dt, Q_temp, rhs)
                 weight_accum_s4 = dtype(1.0/6.0)
                 wp.launch(kernel=ck.rk4_final_update, dim=Q.shape, 
                           inputs=[rhs, Q, dt_warp, weight_accum_s4], 
@@ -191,6 +194,10 @@ class TimeIntegrator:
 
             t += dt
             step += 1
+            
+            # Update state object
+            state.t = t
+            state.step = step
             
             # --- Logging and Output ---
             # Basic logging every 10 steps or if output is due

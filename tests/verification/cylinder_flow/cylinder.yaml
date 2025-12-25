@@ -20,7 +20,7 @@ io:
   write_interval: 5
 
 simulation:
-  t_final: 50.0
+  t_final: 10.0
   ramp_time: 1.0
   device: "cpu"
   max_steps: 10000

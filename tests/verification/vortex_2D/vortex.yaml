@@ -11,23 +11,23 @@ physics:
 
 numerics:
   cfl: 0.5
-  polynomial_order: 6
+  polynomial_order: 3
   precision: "double"
   flux_type: "hllc"
   limiter: "none"
   use_filtering: false
   filter_alpha: 64.0
-  filter_order: 1.0
+  filter_order: 5.0
 
 io:
   output_dir: "output"
-  write_interval: 1.0
+  write_interval: 10.0
 
 simulation:
   t_final: 25.0
   ramp_time: 1.0
   device: "cpu"
-  max_steps: 500000
+  max_steps: 20000
 
 boundaries:
   "Left":

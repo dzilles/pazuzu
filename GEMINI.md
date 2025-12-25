@@ -41,27 +41,28 @@ This project is a high-performance **2D Discontinuous Galerkin (DG) Euler Solver
 ```
 
 ## Setup & Environment
-The project relies on a virtual environment located in `.venv`.
+The project relies on a pre-configured virtual environment located in `.venv`. You should use the python interpreter within this environment to ensure all dependencies are available.
 
-**Dependencies:**
+**Dependencies (installed in `.venv`):**
 *   `warp-lang`
 *   `numpy`
 *   `h5py`
 *   `gmsh`
 *   `pyyaml`
-*   `matplotlib` (likely for `visualize.py`)
+*   `matplotlib` (for visualization scripts)
+*   `pytest` (for testing)
 
 ## Usage
 
 ### Running a Simulation
-To run a simulation, use the `run_simulation.py` script with a YAML configuration file.
+To run a simulation, use the python interpreter from the virtual environment.
 
 ```bash
 # Run with default configuration
-python run_simulation.py
+./.venv/bin/python run_simulation.py
 
 # Run with a specific configuration
-python run_simulation.py config/my_simulation.yaml
+./.venv/bin/python run_simulation.py config/my_simulation.yaml
 ```
 
 ### Configuration (`.yaml`)
@@ -78,16 +79,20 @@ Results are saved as `.h5` files with accompanying `.xmf` descriptors in the `ou
 
 There is also a helper script:
 ```bash
-python scripts/visualize.py --file data/results.h5
+./.venv/bin/python scripts/visualize.py --file data/results.h5
 ```
 
 ## Development & Testing
 
 ### Running Tests
-The project includes a test suite in the `tests/` directory.
+The project includes a test suite in the `tests/` directory. You should use `pytest` from the virtual environment.
 
 ```bash
-python tests/run_tests.py
+# Run all tests (unit + verification)
+./.venv/bin/python -m pytest
+
+# Run a specific verification test
+./.venv/bin/python tests/verification/channel_flow/verify.py
 ```
 
 ### Verification Cases

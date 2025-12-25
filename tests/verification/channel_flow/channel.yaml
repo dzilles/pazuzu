@@ -7,20 +7,23 @@ physics:
   gas_constant: 287.0
 
 numerics:
-  cfl: 0.05
-  polynomial_order: 4
-  flux_type: "rusanov"
+  cfl: 0.3
+  polynomial_order: 3
+  flux_type: "hllc"
   limiter: "none"
-  use_filtering: false
+  use_filtering: true
+  filter_alpha: 36.0
+  filter_order: 8.0
 
 io:
   output_dir: "output"
-  write_interval: 0.1
+  write_interval: 1.0
 
 simulation:
-  t_final: 2.0
-  ramp_time: 1.0
+  t_final: 10.0
+  ramp_time: 0.0
   device: "cpu"
+  max_steps: 5000
 
 boundaries:
   "WallTop":
@@ -28,6 +31,6 @@ boundaries:
   "WallBottom":
     type: "slip_wall"
   "Inlet":
-    type: "farfield"
+    type: "inlet"
   "Outlet":
-    type: "farfield"
+    type: "outlet"

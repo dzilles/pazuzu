@@ -3,33 +3,36 @@ import numpy as np
 import warp as wp
 import sys
 import os
+from typing import Any
 
 # Add project root (parent of src) to path to allow 'src.' imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 from src.kernels import boundary_conditions as bc
+from src.kernels.structs import EquationParams32
 
 @wp.kernel
 def kernel_slip_wall(
     q_inner: wp.array(dtype=wp.vec4),
     nx: float,
     ny: float,
-    q_out: wp.array(dtype=wp.vec4)
+    q_out: wp.array(dtype=wp.vec4),
+    params: Any
 ):
     tid = wp.tid()
-    q_out[tid] = bc.apply_slip_wall(q_inner[tid], nx, ny, 1.0)
+    q_out[tid] = bc.apply_slip_wall(q_inner[tid], nx, ny, params)
 
 @wp.kernel
 def kernel_inlet(
     t: float,
     ramp_time: float,
     q_out: wp.array(dtype=wp.vec4),
-    gamma: float
+    params: Any
 ):
     tid = wp.tid()
     # template_q is used for type deduction
     template_q = wp.vec4(0.0, 0.0, 0.0, 0.0)
-    q_out[tid] = bc.apply_inlet(t, ramp_time, template_q, gamma, 0.5, 1.0)
+    q_out[tid] = bc.apply_inlet(t, ramp_time, template_q, params)
 
 class TestBoundaryConditions(unittest.TestCase):
     @classmethod
@@ -37,6 +40,13 @@ class TestBoundaryConditions(unittest.TestCase):
         wp.init()
         cls.device = "cpu"
         cls.gamma = 1.4
+        
+        cls.params = EquationParams32()
+        cls.params.gamma = 1.4
+        cls.params.rho_floor = 1e-6
+        cls.params.p_floor = 1e-6
+        cls.params.half = 0.5
+        cls.params.one = 1.0
 
     def test_slip_wall(self):
         # Normal in x: (1, 0)
@@ -49,7 +59,7 @@ class TestBoundaryConditions(unittest.TestCase):
         wp.launch(
             kernel=kernel_slip_wall,
             dim=1,
-            inputs=[q_inner_wp, 1.0, 0.0, q_out_wp],
+            inputs=[q_inner_wp, 1.0, 0.0, q_out_wp, self.params],
             device=self.device
         )
         
@@ -63,7 +73,7 @@ class TestBoundaryConditions(unittest.TestCase):
         wp.launch(
             kernel=kernel_inlet,
             dim=1,
-            inputs=[0.0, 1.0, q_out_wp, self.gamma],
+            inputs=[0.0, 1.0, q_out_wp, self.params],
             device=self.device
         )
         
@@ -78,7 +88,7 @@ class TestBoundaryConditions(unittest.TestCase):
         wp.launch(
             kernel=kernel_inlet,
             dim=1,
-            inputs=[2.0, 1.0, q_out_wp, self.gamma],
+            inputs=[2.0, 1.0, q_out_wp, self.params],
             device=self.device
         )
         
