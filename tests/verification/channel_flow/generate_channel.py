@@ -44,8 +44,17 @@ def generate_mesh(filename):
     gmsh.model.addPhysicalGroup(2, [s], 10, "Domain")
     
     gmsh.model.mesh.generate(2)
+    
+    # Ensure output dir exists
+    output_dir = os.path.dirname(filename)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        
     gmsh.write(filename)
     gmsh.finalize()
 
 if __name__ == "__main__":
-    generate_mesh("channel.msh")
+    # Default to saving in 'output' subdirectory relative to this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_path = os.path.join(script_dir, "output", "channel.msh")
+    generate_mesh(output_path)

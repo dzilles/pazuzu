@@ -7,8 +7,19 @@ import pytest
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+# Add local directory to path for importing generate_channel
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from generate_channel import generate_mesh
 
 def run_simulation():
+    # 1. Generate Mesh
+    output_dir = os.path.join(os.path.dirname(__file__), "output")
+    mesh_file = os.path.join(output_dir, "channel.msh")
+    print(f"Generating mesh: {mesh_file}")
+    generate_mesh(mesh_file)
+
+    # 2. Run Simulation
     config_path = os.path.join(os.path.dirname(__file__), "channel.yaml")
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
     

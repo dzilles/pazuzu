@@ -47,12 +47,16 @@ def generate_mesh(filename):
     
     gmsh.model.mesh.generate(2)
     
+    # Ensure output dir exists
+    output_dir = os.path.dirname(filename)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        
     gmsh.write(filename)
     gmsh.finalize()
 
 if __name__ == "__main__":
-    # Ensure output directory exists if running standalone
-    out_dir = os.path.dirname("box.msh")
-    if out_dir and not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-    generate_mesh("box.msh")
+    # Default to saving in 'output' subdirectory relative to this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_path = os.path.join(script_dir, "output", "box.msh")
+    generate_mesh(output_path)

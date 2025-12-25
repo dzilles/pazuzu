@@ -6,7 +6,18 @@ import subprocess
 import matplotlib.pyplot as plt
 import pytest
 
+# Add local directory to path for importing generate_mesh
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from generate_mesh import generate_mesh
+
 def run_simulation():
+    # 1. Generate Mesh
+    output_dir = os.path.join(os.path.dirname(__file__), "output")
+    mesh_file = os.path.join(output_dir, "box.msh")
+    print(f"Generating mesh: {mesh_file}")
+    generate_mesh(mesh_file)
+    
     config_path = os.path.join(os.path.dirname(__file__), "vortex.yaml")
     # Run from root
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))

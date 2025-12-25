@@ -1,5 +1,5 @@
 case_name: "channel_flow"
-mesh_file: "channel.msh"
+mesh_file: "output/channel.msh"
 initial_condition: "uniform"
 
 physics:

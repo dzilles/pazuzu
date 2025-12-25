@@ -1,5 +1,5 @@
 case_name: "vortex_verification"
-mesh_file: "box.msh"
+mesh_file: "output/box.msh"
 initial_condition: "vortex"
 periodic_pairs:
   - ["Left", "Right", "x"]

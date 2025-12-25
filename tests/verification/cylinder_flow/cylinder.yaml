@@ -1,5 +1,5 @@
 case_name: "cylinder_flow"
-mesh_file: "cylinder.msh"
+mesh_file: "output/cylinder.msh"
 initial_condition: "rest"
 
 physics:
