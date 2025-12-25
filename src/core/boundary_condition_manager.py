@@ -64,6 +64,8 @@ class BoundaryConditionManager:
             return bc.BC_INLET
         elif bc_type == "outlet": 
             return bc.BC_OUTLET
+        elif bc_type == "dmr_exact":
+            return bc.BC_DOUBLE_MACH_EXACT
         
         # Default fallback
         return bc.BC_FARFIELD

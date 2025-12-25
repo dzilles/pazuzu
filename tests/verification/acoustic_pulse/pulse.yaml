@@ -1,0 +1,34 @@
+case_name: "acoustic_pulse"
+mesh_file: "output/pulse.msh"
+initial_condition: "acoustic_pulse"
+
+physics:
+  gamma: 1.4
+  gas_constant: 287.0
+
+numerics:
+  cfl: 0.4
+  polynomial_order: 3
+  precision: "double"
+  flux_type: "hllc"
+  limiter: "none"
+  use_filtering: false
+
+io:
+  output_dir: "output"
+  write_interval: 0.1
+
+simulation:
+  t_final: 1.5
+  ramp_time: 0.0
+  device: "cpu"
+
+boundaries:
+  "Left":
+    type: "farfield"
+  "Right":
+    type: "farfield"
+  "Top":
+    type: "farfield"
+  "Bottom":
+    type: "farfield"

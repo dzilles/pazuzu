@@ -1,0 +1,30 @@
+case_name: "double_mach_reflection"
+mesh_file: "output/double_mach.msh"
+initial_condition: "double_mach_reflection"
+
+physics:
+  gamma: 1.4
+  gas_constant: 287.0
+
+numerics:
+  cfl: 0.3
+  polynomial_order: 2
+  precision: "single"
+  flux_type: "hllc"
+  limiter: "barth_jespersen"
+  use_filtering: false
+
+io:
+  output_dir: "output"
+  write_interval: 0.02
+
+simulation:
+  t_final: 0.2
+  ramp_time: 0.0
+  device: "cpu"
+
+boundaries:
+  "Exact":
+    type: "dmr_exact"
+  "Wall":
+    type: "slip_wall"

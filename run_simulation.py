@@ -22,6 +22,10 @@ def get_initial_condition_func(name):
         return ic.rest
     elif name == "sod_shock_tube":
         return ic.sod_shock_tube
+    elif name == "double_mach_reflection":
+        return ic.double_mach_reflection
+    elif name == "acoustic_pulse":
+        return ic.acoustic_pulse
     else:
         raise ValueError(f"Unknown initial condition: {name}")
 

@@ -64,6 +64,30 @@ def uniform(x, y, t=0.0):
     p = 1.0
     return rho, u, v, p
 
+def acoustic_pulse(x, y, t=0.0):
+    """
+    Gaussian pressure pulse in a fluid at rest.
+    Used to verify non-reflecting (characteristic) boundary conditions.
+    """
+    gamma = 1.4
+    rho_inf = 1.0
+    p_inf = 1.0
+    epsilon = 0.2
+    sigma = 0.1
+    
+    r_sq = x*x + y*y
+    
+    # Pressure perturbation
+    p = p_inf + epsilon * np.exp(-r_sq / (2.0 * sigma**2))
+    
+    # Isentropic density: rho = rho_inf * (p/p_inf)^(1/gamma)
+    rho = rho_inf * np.power(p / p_inf, 1.0 / gamma)
+    
+    u = 0.0
+    v = 0.0
+    
+    return rho, u, v, p
+
 def rest(x, y, t=0.0):
     """
     Computes a state at rest.
@@ -95,4 +119,34 @@ def sod_shock_tube(x, y, t=0.0):
         return 1.0, 0.0, 0.0, 1.0
     else:
         # Right State
-        return 0.125, 0.0, 0.0, 0.1
+        return 0.125, 0.0, 0.0, 0.125
+
+def double_mach_reflection(x, y, t=0.0):
+    """
+    Woodward & Colella (1984) Double Mach Reflection setup.
+    A Mach 10 shock hits a 30-degree wedge (rotated so wedge is on x-axis).
+    """
+    # Angle of the shock with the wall (x-axis) is 60 degrees.
+    # tan(60) = sqrt(3)
+    # The shock line at t=0: x = 1/6 + y / sqrt(3)
+    # Shock speed along x-axis: V_x = 10 / sin(60) = 20 / sqrt(3)
+    
+    sin_60 = np.sqrt(3.0) / 2.0
+    tan_60 = np.sqrt(3.0)
+    
+    shock_x = 1.0/6.0 + y / tan_60 + (10.0 / sin_60) * t
+    
+    if x < shock_x:
+        # Post-shock (Left) State
+        rho = 8.0
+        u = 8.25 * np.cos(np.radians(30))
+        v = -8.25 * np.sin(np.radians(30))
+        p = 116.5
+    else:
+        # Pre-shock (Right) State
+        rho = 1.4
+        u = 0.0
+        v = 0.0
+        p = 1.0
+        
+    return rho, u, v, p

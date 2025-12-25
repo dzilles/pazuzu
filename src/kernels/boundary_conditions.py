@@ -9,6 +9,7 @@ BC_INLET = 3     # Inlet (Freestream)
 BC_OUTLET = 4    # Subsonic Outlet
 BC_EXTRAPOLATION = 5 # Zero-Gradient / Outflow
 BC_CYLINDER_WALL = 6 # Slip Wall with analytical normals for cylinder
+BC_DOUBLE_MACH_EXACT = 7 # Exact shock motion for DMR boundaries
 
 # --- Helper Functions ---
 
@@ -19,6 +20,42 @@ def make_vec4_generic(x: wp.float32, y: wp.float32, z: wp.float32, w: wp.float32
 @wp.func
 def make_vec4_generic(x: wp.float64, y: wp.float64, z: wp.float64, w: wp.float64):
     return wp.vec4d(x, y, z, w)
+
+@wp.func
+def get_half_generic(template: wp.float32):
+    return 0.5
+
+@wp.func
+def get_half_generic(template: wp.float32):
+    return wp.float32(0.5)
+
+@wp.func
+def get_half_generic(template: wp.float64):
+    return wp.float64(0.5)
+
+@wp.func
+def get_one_generic(template: wp.float32):
+    return wp.float32(1.0)
+
+@wp.func
+def get_one_generic(template: wp.float64):
+    return wp.float64(1.0)
+
+@wp.func
+def get_any_generic(template: wp.float32, val: wp.float32):
+    return wp.float32(val)
+
+@wp.func
+def get_any_generic(template: wp.float32, val: wp.float64):
+    return wp.float32(val)
+
+@wp.func
+def get_any_generic(template: wp.float64, val: wp.float32):
+    return wp.float64(val)
+
+@wp.func
+def get_any_generic(template: wp.float64, val: wp.float64):
+    return wp.float64(val)
 
 @wp.func
 def set_vec4_generic(v: wp.vec4, i: int, val: wp.float32):
@@ -232,6 +269,50 @@ def apply_outlet(q_inner: Any, nx: Any, ny: Any, params: Any):
     return compute_characteristic_state(q_inner, q_target, nx, ny, params)
 
 @wp.func
+def apply_double_mach_exact(q_inner: Any, nx: Any, ny: Any, x: Any, y: Any, t: Any, params: Any):
+    """
+    Exact shock motion for DMR boundaries.
+    """
+    # Use template for correct precision constants
+    template = nx
+    half = get_half_generic(template)
+    one = get_one_generic(template)
+    
+    # Shock line: x = 1/6 + y/tan(60) + (10/sin(60))*t
+    # sin(60) = sqrt(3)/2, tan(60) = sqrt(3)
+    three = get_any_generic(template, 3.0)
+    sqrt3 = wp.sqrt(three)
+    sin60 = sqrt3 * half
+    
+    six = get_any_generic(template, 6.0)
+    ten = get_any_generic(template, 10.0)
+    shock_x = one / six + y / sqrt3 + (ten / sin60) * t
+    
+    if x < shock_x:
+        # Post-shock (Left) State: rho=8, p=116.5, u=8.25*cos(30), v=-8.25*sin(30)
+        rho = get_any_generic(template, 8.0)
+        u825 = get_any_generic(template, 8.25)
+        # cos(30) = sin(60)
+        u = u825 * sin60
+        # sin(30) = 0.5
+        v = -u825 * half
+        p = get_any_generic(template, 116.5)
+    else:
+        # Pre-shock (Right) State: rho=1.4, u=0, v=0, p=1.0
+        rho = get_any_generic(template, 1.4)
+        u = get_any_generic(template, 0.0)
+        v = get_any_generic(template, 0.0)
+        p = one
+        
+    rho_u = rho * u
+    rho_v = rho * v
+    kin = half * rho * (u*u + v*v)
+    E = p / (params.gamma - params.one) + kin
+    
+    q_target = make_vec4_generic(rho, rho_u, rho_v, E)
+    return compute_characteristic_state(q_inner, q_target, nx, ny, params)
+
+@wp.func
 def apply_boundary_condition(
     bc_type: wp.int32, 
     q_inner: Any, 
@@ -260,5 +341,7 @@ def apply_boundary_condition(
         q_outer = apply_outlet(q_inner, nx, ny, params)
     elif bc_type == BC_EXTRAPOLATION:
         q_outer = apply_extrapolation(q_inner)
+    elif bc_type == BC_DOUBLE_MACH_EXACT:
+        q_outer = apply_double_mach_exact(q_inner, nx, ny, x, y, t, params)
         
     return q_outer
