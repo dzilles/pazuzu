@@ -62,6 +62,11 @@ class Euler2DSolver(BaseSolver):
             self.params.p_floor = 1.0e-5
             self.params.half = 0.5
             self.params.one = 1.0
+            # Freestream
+            self.params.rho_inf = config.physics.rho_inf
+            self.params.u_inf = config.physics.u_inf
+            self.params.v_inf = config.physics.v_inf
+            self.params.p_inf = config.physics.p_inf
         else:
             self.dtype_np = np.float32
             self.dtype_warp = wp.float32
@@ -73,6 +78,11 @@ class Euler2DSolver(BaseSolver):
             self.params.p_floor = 1.0e-5
             self.params.half = 0.5
             self.params.one = 1.0
+            # Freestream
+            self.params.rho_inf = config.physics.rho_inf
+            self.params.u_inf = config.physics.u_inf
+            self.params.v_inf = config.physics.v_inf
+            self.params.p_inf = config.physics.p_inf
 
         # Compute Geometric Factors (Metrics & Jacobians) & Physical Coordinates
         # This now resides in the Mesh class to prevent duplication.

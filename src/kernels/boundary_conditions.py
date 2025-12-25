@@ -73,21 +73,19 @@ def set_vec4_generic(v: wp.vec4d, i: int, val: wp.float64):
 
 @wp.func
 def get_freestream_state(t: Any, ramp_time: Any, template_q: Any, params: Any):
-    """Returns the freestream state with ramping (rho=1, u=ramped, v=0, p=1)."""
+    """Returns the freestream state with ramping."""
     zero = template_q[0] - template_q[0]
     
-    rho = zero + params.one
+    rho = zero + params.rho_inf
     
-    # Ramp u from 0 to 1 over ramp_time
-    target_u = zero + params.one
+    # Ramp velocity if needed
     factor = zero + params.one
-    
     if t < ramp_time:
         factor = t / ramp_time
         
-    u = target_u * factor
-    v = zero
-    p = zero + params.one
+    u = params.u_inf * factor
+    v = params.v_inf * factor
+    p = zero + params.p_inf
     
     rho_u = rho * u
     rho_v = rho * v

@@ -5,6 +5,7 @@ initial_condition: "uniform"
 physics:
   gamma: 1.4
   gas_constant: 287.0
+  u_inf: 1.0
 
 numerics:
   cfl: 0.3

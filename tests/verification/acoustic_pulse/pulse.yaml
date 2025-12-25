@@ -19,7 +19,7 @@ io:
   write_interval: 0.1
 
 simulation:
-  t_final: 1.5
+  t_final: 2.5
   ramp_time: 0.0
   device: "cpu"
 
