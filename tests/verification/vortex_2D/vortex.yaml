@@ -16,8 +16,8 @@ numerics:
   flux_type: "hllc"
   limiter: "none"
   use_filtering: false
-  filter_alpha: 36.0
-  filter_order: 16
+  filter_alpha: 64.0
+  filter_order: 1.0
 
 io:
   output_dir: "output"

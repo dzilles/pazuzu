@@ -73,3 +73,39 @@ def apply_filter_matrix(
         val = val + q_val * f
         
     q_out[e, i] = val
+
+@wp.kernel
+def rk4_stage_update(
+    q_old: wp.array(dtype=Any, ndim=2),
+    rhs: wp.array(dtype=Any, ndim=2),
+    q_accum: wp.array(dtype=Any, ndim=2),
+    q_next: wp.array(dtype=Any, ndim=2),
+    dt: Any,
+    weight_accum: Any,
+    weight_next: Any
+):
+    """
+    Updates the accumulator and prepares the next stage state for RK4.
+    
+    q_accum += weight_accum * dt * rhs
+    q_next = q_old + weight_next * dt * rhs
+    """
+    e, i = wp.tid()
+    term = dt * rhs[e, i]
+    q_accum[e, i] = q_accum[e, i] + weight_accum * term
+    q_next[e, i] = q_old[e, i] + weight_next * term
+
+@wp.kernel
+def rk4_final_update(
+    rhs: wp.array(dtype=Any, ndim=2),
+    q_accum: wp.array(dtype=Any, ndim=2),
+    dt: Any,
+    weight_accum: Any
+):
+    """
+    Performs the final update to the accumulator for RK4.
+    
+    q_accum += weight_accum * dt * rhs
+    """
+    e, i = wp.tid()
+    q_accum[e, i] = q_accum[e, i] + weight_accum * dt * rhs[e, i]

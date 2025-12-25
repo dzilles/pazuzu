@@ -1,0 +1,90 @@
+import unittest
+import numpy as np
+import warp as wp
+import sys
+import os
+
+# Add project root (parent of src) to path to allow 'src.' imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
+from src.kernels import boundary_conditions as bc
+
+@wp.kernel
+def kernel_slip_wall(
+    q_inner: wp.array(dtype=wp.vec4),
+    nx: float,
+    ny: float,
+    q_out: wp.array(dtype=wp.vec4)
+):
+    tid = wp.tid()
+    q_out[tid] = bc.apply_slip_wall(q_inner[tid], nx, ny, 1.0)
+
+@wp.kernel
+def kernel_inlet(
+    t: float,
+    ramp_time: float,
+    q_out: wp.array(dtype=wp.vec4),
+    gamma: float
+):
+    tid = wp.tid()
+    # template_q is used for type deduction
+    template_q = wp.vec4(0.0, 0.0, 0.0, 0.0)
+    q_out[tid] = bc.apply_inlet(t, ramp_time, template_q, gamma, 0.5, 1.0)
+
+class TestBoundaryConditions(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        wp.init()
+        cls.device = "cpu"
+        cls.gamma = 1.4
+
+    def test_slip_wall(self):
+        # Normal in x: (1, 0)
+        # Inner velocity (1, 1) => rhou=1, rhov=1
+        # Expect reflected rhou = -1, rhov = 1
+        q_inner = [1.0, 1.0, 1.0, 3.0]
+        q_inner_wp = wp.array([q_inner], dtype=wp.vec4, device=self.device)
+        q_out_wp = wp.zeros(1, dtype=wp.vec4, device=self.device)
+        
+        wp.launch(
+            kernel=kernel_slip_wall,
+            dim=1,
+            inputs=[q_inner_wp, 1.0, 0.0, q_out_wp],
+            device=self.device
+        )
+        
+        expected = np.array([1.0, -1.0, 1.0, 3.0])
+        np.testing.assert_allclose(q_out_wp.numpy()[0], expected, atol=1e-6)
+
+    def test_inlet_ramped(self):
+        # t=0, ramp_time=1.0 => u should be 0
+        q_out_wp = wp.zeros(1, dtype=wp.vec4, device=self.device)
+        
+        wp.launch(
+            kernel=kernel_inlet,
+            dim=1,
+            inputs=[0.0, 1.0, q_out_wp, self.gamma],
+            device=self.device
+        )
+        
+        # rho=1, u=0, v=0, p=1 => E = 1/0.4 = 2.5
+        expected = np.array([1.0, 0.0, 0.0, 2.5])
+        np.testing.assert_allclose(q_out_wp.numpy()[0], expected, atol=1e-6)
+
+    def test_inlet_full(self):
+        # t=2.0, ramp_time=1.0 => u should be 1.0
+        q_out_wp = wp.zeros(1, dtype=wp.vec4, device=self.device)
+        
+        wp.launch(
+            kernel=kernel_inlet,
+            dim=1,
+            inputs=[2.0, 1.0, q_out_wp, self.gamma],
+            device=self.device
+        )
+        
+        # rho=1, u=1, v=0, p=1 => E = 2.5 + 0.5 = 3.0
+        expected = np.array([1.0, 1.0, 0.0, 3.0])
+        np.testing.assert_allclose(q_out_wp.numpy()[0], expected, atol=1e-6)
+
+if __name__ == '__main__':
+    unittest.main()

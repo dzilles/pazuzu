@@ -3,6 +3,7 @@ import os
 import numpy as np
 import h5py
 import subprocess
+import pytest
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
@@ -61,6 +62,11 @@ def verify():
              sys.exit(1)
         else:
              print("Test PASSED.")
+
+@pytest.mark.slow
+def test_verification():
+    run_simulation()
+    verify()
 
 if __name__ == "__main__":
     run_simulation()

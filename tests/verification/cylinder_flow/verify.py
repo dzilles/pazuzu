@@ -4,6 +4,7 @@ import subprocess
 import numpy as np
 import h5py
 import yaml
+import pytest
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
@@ -109,6 +110,10 @@ def run_test():
     except Exception as e:
         print(f"Verification failed with error: {e}")
         sys.exit(1)
+
+@pytest.mark.slow
+def test_verification():
+    run_test()
 
 if __name__ == "__main__":
     run_test()

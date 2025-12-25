@@ -4,6 +4,7 @@ import numpy as np
 import h5py
 import subprocess
 import matplotlib.pyplot as plt
+import pytest
 
 def run_simulation():
     config_path = os.path.join(os.path.dirname(__file__), "vortex.yaml")
@@ -185,6 +186,11 @@ def verify():
             sys.exit(1)
         else:
             print("\n✅ Verification PASSED.")
+
+@pytest.mark.slow
+def test_verification():
+    run_simulation()
+    verify()
 
 if __name__ == "__main__":
     run_simulation()
