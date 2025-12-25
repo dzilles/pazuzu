@@ -1,34 +1,22 @@
 import numpy as np
 
-def vortex(x, y, t=0.0):
+def vortex(x, y, t=0.0, **kwargs):
     """
     Computes the exact solution for the 2D Isentropic Vortex problem at time t.
-    
-    The vortex is a common test case for Euler solvers. It consists of a mean flow
-    (u_inf, v_inf) with a superimposed perturbation that satisfies the Euler equations.
-    The vortex advects with the mean flow without changing shape.
-
-    Args:
-        x (float): Physical x-coordinate.
-        y (float): Physical y-coordinate.
-        t (float, optional): Simulation time. Defaults to 0.0.
-
-    Returns:
-        tuple: (rho, u, v, p) - Density, x-velocity, y-velocity, pressure.
     """
-    gamma = 1.4
-    beta = 5.0  # Vortex strength
+    gamma = kwargs.get("gamma", 1.4)
+    beta = kwargs.get("beta", 5.0)  # Vortex strength
     
-    u_inf = 1.0
-    v_inf = 1.0
-    
-    # Advect coordinates back to t=0 to find the vortex position in the moving frame
-    # Exact solution property: q(x, y, t) = q_0(x - u_inf*t, y - v_inf*t)
-    x0 = x - u_inf * t
-    y0 = y - v_inf * t
+    u_inf = kwargs.get("u_inf", 1.0)
+    v_inf = kwargs.get("v_inf", 1.0)
     
     # Center of vortex at t=0
-    xc, yc = 5.0, 5.0
+    xc = kwargs.get("xc", 5.0)
+    yc = kwargs.get("yc", 5.0)
+    
+    # Advect coordinates back to t=0 to find the vortex position in the moving frame
+    x0 = x - u_inf * t
+    y0 = y - v_inf * t
     
     r_sq = (x0 - xc)**2 + (y0 - yc)**2
     
@@ -38,7 +26,7 @@ def vortex(x, y, t=0.0):
     u = u_inf + du
     v = v_inf + dv
     
-    T_inf = 1.0
+    T_inf = kwargs.get("T_inf", 1.0)
     T = T_inf - ((gamma - 1) * beta**2 / (8 * gamma * np.pi**2)) * np.exp(1 - r_sq)
     
     rho = T**(1.0 / (gamma - 1))
@@ -46,36 +34,31 @@ def vortex(x, y, t=0.0):
     
     return rho, u, v, p
 
-def uniform(x, y, t=0.0):
+def uniform(x, y, t=0.0, **kwargs):
     """
     Computes a uniform flow field state.
-
-    Args:
-        x (float): Physical x-coordinate.
-        y (float): Physical y-coordinate.
-        t (float, optional): Simulation time. Defaults to 0.0.
-
-    Returns:
-        tuple: (rho, u, v, p) with rho=1.0, u=1.0, v=0.0, p=1.0.
     """
-    rho = 1.0
-    u = 1.0
-    v = 0.0
-    p = 1.0
+    rho = kwargs.get("rho", 1.0)
+    u = kwargs.get("u", 1.0)
+    v = kwargs.get("v", 0.0)
+    p = kwargs.get("p", 1.0)
     return rho, u, v, p
 
-def acoustic_pulse(x, y, t=0.0):
+def acoustic_pulse(x, y, t=0.0, **kwargs):
     """
     Gaussian pressure pulse in a fluid at rest.
-    Used to verify non-reflecting (characteristic) boundary conditions.
     """
-    gamma = 1.4
-    rho_inf = 1.0
-    p_inf = 1.0
-    epsilon = 0.2
-    sigma = 0.1
+    gamma = kwargs.get("gamma", 1.4)
+    rho_inf = kwargs.get("rho_inf", 1.0)
+    p_inf = kwargs.get("p_inf", 1.0)
+    epsilon = kwargs.get("epsilon", 0.2)
+    sigma = kwargs.get("sigma", 0.1)
     
-    r_sq = x*x + y*y
+    # Center of pulse
+    xc = kwargs.get("xc", 0.0)
+    yc = kwargs.get("yc", 0.0)
+    
+    r_sq = (x - xc)**2 + (y - yc)**2
     
     # Pressure perturbation
     p = p_inf + epsilon * np.exp(-r_sq / (2.0 * sigma**2))
@@ -83,54 +66,45 @@ def acoustic_pulse(x, y, t=0.0):
     # Isentropic density: rho = rho_inf * (p/p_inf)^(1/gamma)
     rho = rho_inf * np.power(p / p_inf, 1.0 / gamma)
     
-    u = 0.0
-    v = 0.0
+    u = kwargs.get("u_inf", 0.0)
+    v = kwargs.get("v_inf", 0.0)
     
     return rho, u, v, p
 
-def rest(x, y, t=0.0):
+def rest(x, y, t=0.0, **kwargs):
     """
     Computes a state at rest.
-
-    Args:
-        x (float): Physical x-coordinate.
-        y (float): Physical y-coordinate.
-        t (float, optional): Simulation time. Defaults to 0.0.
-
-    Returns:
-        tuple: (rho, u, v, p) with rho=1.0, u=0.0, v=0.0, p=1.0.
     """
-    return 1.0, 0.0, 0.0, 1.0
+    rho = kwargs.get("rho", 1.0)
+    p = kwargs.get("p", 1.0)
+    return rho, 0.0, 0.0, p
 
-def sod_shock_tube(x, y, t=0.0):
+def sod_shock_tube(x, y, t=0.0, **kwargs):
     """
     Computes the initial state for the Sod Shock Tube problem.
-
-    Args:
-        x (float): Physical x-coordinate.
-        y (float): Physical y-coordinate.
-        t (float, optional): Simulation time. Defaults to 0.0.
-
-    Returns:
-        tuple: (rho, u, v, p)
     """
-    if x < 0.5:
+    # X-discontinuity location
+    x0 = kwargs.get("x0", 0.5)
+    
+    if x < x0:
         # Left State
-        return 1.0, 0.0, 0.0, 1.0
+        rho = kwargs.get("rho_l", 1.0)
+        u = kwargs.get("u_l", 0.0)
+        v = kwargs.get("v_l", 0.0)
+        p = kwargs.get("p_l", 1.0)
     else:
         # Right State
-        return 0.125, 0.0, 0.0, 0.125
+        rho = kwargs.get("rho_r", 0.125)
+        u = kwargs.get("u_r", 0.0)
+        v = kwargs.get("v_r", 0.0)
+        p = kwargs.get("p_r", 0.125)
+        
+    return rho, u, v, p
 
-def double_mach_reflection(x, y, t=0.0):
+def double_mach_reflection(x, y, t=0.0, **kwargs):
     """
     Woodward & Colella (1984) Double Mach Reflection setup.
-    A Mach 10 shock hits a 30-degree wedge (rotated so wedge is on x-axis).
     """
-    # Angle of the shock with the wall (x-axis) is 60 degrees.
-    # tan(60) = sqrt(3)
-    # The shock line at t=0: x = 1/6 + y / sqrt(3)
-    # Shock speed along x-axis: V_x = 10 / sin(60) = 20 / sqrt(3)
-    
     sin_60 = np.sqrt(3.0) / 2.0
     tan_60 = np.sqrt(3.0)
     

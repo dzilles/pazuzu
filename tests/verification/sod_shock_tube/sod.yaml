@@ -1,7 +1,10 @@
 case_name: "sod_shock_tube"
 solver_type: "euler_2d"
 mesh_file: "output/sod.msh"
-initial_condition: "sod_shock_tube"
+initial_condition:
+  name: "sod_shock_tube"
+  params:
+    x0: 0.5
 
 physics:
   gamma: 1.4

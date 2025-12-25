@@ -1,6 +1,9 @@
 case_name: "channel_flow"
 mesh_file: "output/channel.msh"
-initial_condition: "uniform"
+initial_condition:
+  name: "uniform"
+  params:
+    u: 1.0
 
 physics:
   gamma: 1.4
@@ -33,5 +36,12 @@ boundaries:
     type: "slip_wall"
   "Inlet":
     type: "inlet"
+    params:
+      rho: 1.0
+      u: 1.0
+      v: 0.0
+      p: 1.0
   "Outlet":
     type: "outlet"
+    params:
+      p_back: 1.0

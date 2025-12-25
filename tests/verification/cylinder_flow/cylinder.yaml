@@ -1,6 +1,10 @@
 case_name: "cylinder_flow"
 mesh_file: "output/cylinder.msh"
-initial_condition: "rest"
+initial_condition:
+  name: "rest"
+  params:
+    rho: 1.0
+    p: 1.0
 
 physics:
   gamma: 1.4
@@ -29,8 +33,15 @@ simulation:
 boundaries:
   "Inlet":
     type: "inlet"
+    params:
+      rho: 1.0
+      u: 1.0
+      v: 0.0
+      p: 1.0
   "Outlet":
     type: "outlet"
+    params:
+      p_back: 1.0
   "Top":
     type: "slip_wall"
   "Bottom":

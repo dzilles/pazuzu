@@ -49,6 +49,7 @@ class TimeIntegrator:
         t_final = self.solver.config.simulation.t_final
         CFL = self.solver.config.numerics.cfl
         write_interval = self.solver.config.io.write_interval
+        min_dt = self.solver.config.numerics.min_dt
         
         # Use state from solver
         state = self.solver.state
@@ -73,7 +74,7 @@ class TimeIntegrator:
         # Direct references to solver's main state arrays for clarity
         Q = state.q
         
-        print(f"Starting simulation: t_final={t_final}, CFL={CFL}, write_interval={write_interval}")
+        print(f"Starting simulation: t_final={t_final}, CFL={CFL}, write_interval={write_interval}, min_dt={min_dt:.1e}")
 
         while t < t_final:
             if max_steps is not None and step >= max_steps:
@@ -82,6 +83,10 @@ class TimeIntegrator:
                 
             # Calculate adaptive time step based on current flow state
             dt = self.solver.calculate_dt(CFL)
+
+            # --- Safety Check: Check if dt is too small ---
+            if dt < min_dt:
+                raise RuntimeError(f"Simulation aborted: Time step dt={dt:.3e} is below threshold min_dt={min_dt:.3e}. The simulation is likely unstable.")
             
             # Adjust dt to hit t_final exactly
             if t + dt > t_final:
@@ -113,8 +118,7 @@ class TimeIntegrator:
                 # Check for NaNs to detect instability early
                 q_np = Q.numpy()
                 if np.isnan(q_np).any():
-                    print(f"!!! Simulation unstable at step {step} (t={t:.4f})")
-                    break
+                    raise RuntimeError(f"Simulation became unstable: NaN values detected at step {step} (t={t:.4f})")
                 
                 # Write output
                 if writer:

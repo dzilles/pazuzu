@@ -1,6 +1,13 @@
 case_name: "vortex_verification"
 mesh_file: "output/box.msh"
-initial_condition: "vortex"
+initial_condition:
+  name: "vortex"
+  params:
+    beta: 5.0
+    xc: 5.0
+    yc: 5.0
+    u_inf: 1.0
+    v_inf: 1.0
 periodic_pairs:
   - ["Left", "Right", "x"]
   - ["Top", "Bottom", "y"]
@@ -8,18 +15,15 @@ periodic_pairs:
 physics:
   gamma: 1.4
   gas_constant: 287.0
-  u_inf: 1.0
-  v_inf: 1.0
+
 
 numerics:
-  cfl: 0.5
+  cfl: 0.3
   polynomial_order: 3
   precision: "double"
   flux_type: "hllc"
   limiter: "none"
-  use_filtering: false
-  filter_alpha: 64.0
-  filter_order: 5.0
+  min_dt: 1.0e-12
 
 io:
   output_dir: "output"

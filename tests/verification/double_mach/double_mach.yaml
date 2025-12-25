@@ -1,6 +1,8 @@
 case_name: "double_mach_reflection"
 mesh_file: "output/double_mach.msh"
-initial_condition: "double_mach_reflection"
+initial_condition:
+  name: "double_mach_reflection"
+  params: {}
 
 physics:
   gamma: 1.4

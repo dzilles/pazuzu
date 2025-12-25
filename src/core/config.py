@@ -36,6 +36,7 @@ class NumericsConfig(BaseModel):
     use_filtering: bool = Field(default=False, description="Enable exponential filtering against aliasing")
     filter_alpha: float = Field(default=36.0, description="Filter strength (alpha)")
     filter_order: int = Field(default=16, description="Filter order")
+    min_dt: float = Field(default=1e-15, gt=0, description="Minimum allowable time step before aborting")
 
 class IOConfig(BaseModel):
     output_dir: str = Field(default="output", description="Directory for output files")
@@ -47,11 +48,15 @@ class SimulationConfig(BaseModel):
     device: str = Field(default="cpu", description="Compute device (cpu or cuda)")
     max_steps: Optional[int] = Field(default=None, description="Maximum number of time steps")
 
+class InitialConditionConfig(BaseModel):
+    name: str = Field(..., description="Name of the initial condition")
+    params: Dict[str, Any] = Field(default_factory=dict, description="Parameters for the initial condition")
+
 class PazuzuConfig(BaseModel):
     case_name: str = Field(default="simulation", description="Name of the simulation case")
     solver_type: SolverType = Field(default=SolverType.EULER_2D, description="Type of solver to use")
     mesh_file: str = Field(..., description="Path to the mesh file (.msh)")
-    initial_condition: str = Field(default="vortex", description="Initial condition name")
+    initial_condition: Union[str, InitialConditionConfig] = Field(default="vortex", description="Initial condition configuration")
     periodic_pairs: List[List[Union[str, int]]] = Field(default_factory=list, description="Periodic boundary pairs [Tag1, Tag2, Axis]")
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
     numerics: NumericsConfig = Field(default_factory=NumericsConfig)

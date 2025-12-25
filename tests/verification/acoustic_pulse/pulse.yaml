@@ -1,6 +1,10 @@
 case_name: "acoustic_pulse"
 mesh_file: "output/pulse.msh"
-initial_condition: "acoustic_pulse"
+initial_condition:
+  name: "acoustic_pulse"
+  params:
+    epsilon: 0.2
+    sigma: 0.1
 
 physics:
   gamma: 1.4

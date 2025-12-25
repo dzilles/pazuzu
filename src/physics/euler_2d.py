@@ -88,14 +88,46 @@ class Euler2DSolver(BaseSolver):
         # This now resides in the Mesh class to prevent duplication.
         self.mesh.compute_geometry(self.basis, dtype_warp=self.dtype_warp, dtype_np=self.dtype_np)
         
-        # Setup Boundary Conditions mask
+        # Setup Boundary Conditions mask and data
         bc_manager = BoundaryConditionManager(self.mesh, config)
-        self.bc_mask_host = bc_manager.setup_boundary_conditions()
+        self.bc_mask_host, bc_data_list = bc_manager.setup_boundary_conditions()
 
         # --- Device-side data (for computation) ---
         
         self.bc_mask = wp.array(self.bc_mask_host, dtype=wp.int32, device=self.device)
         
+        # Create and populate BC data array
+        num_bcs = len(bc_data_list)
+        if num_bcs > 0:
+            from src.kernels.structs import BoundaryState32, BoundaryState64
+            from src.kernels import boundary_conditions as bc_module
+            bc_struct_type = BoundaryState64 if config.numerics.precision == "double" else BoundaryState32
+            
+            # Use Warp's internal numpy_dtype to ensure correct alignment/padding
+            bc_data_host = np.zeros(num_bcs, dtype=bc_struct_type.numpy_dtype())
+            
+            for i, data in enumerate(bc_data_list):
+                bc_id = data['type']
+                params = data['params']
+                bc_data_host[i]['type'] = bc_id
+                
+                if bc_id == bc_module.BC_INLET:
+                    bc_data_host[i]['v0'] = params['rho']
+                    bc_data_host[i]['v1'] = params['u']
+                    bc_data_host[i]['v2'] = params['v']
+                    bc_data_host[i]['v3'] = params['p']
+                elif bc_id == bc_module.BC_OUTLET:
+                    bc_data_host[i]['v0'] = params['p_back']
+                elif bc_id == bc_module.BC_FARFIELD:
+                    bc_data_host[i]['v0'] = params['rho']
+                    bc_data_host[i]['v1'] = params['u']
+                    bc_data_host[i]['v2'] = params['v']
+                    bc_data_host[i]['v3'] = params['p']
+            
+            self.bc_data = wp.array(bc_data_host, dtype=bc_struct_type, device=self.device)
+        else:
+            self.bc_data = None
+
         # Inverse of Mass Matrix (diagonal)
         weights_2d = np.kron(self.basis.weights_1d.numpy(), self.basis.weights_1d.numpy())
         M_inv_diag_host = 1.0 / weights_2d
@@ -113,12 +145,11 @@ class Euler2DSolver(BaseSolver):
             self.basis.compute_filter_matrix(config.numerics.filter_alpha, config.numerics.filter_order)
             
     def initialize(self, initial_condition_func):
-
         """
-        Initializes the state vector Q using the provided initial condition function.
+        Initializes the state vector Q using the provided initial condition function and configuration.
 
         Args:
-            initial_condition_func (callable): Function f(x, y) -> (rho, u, v, p).
+            initial_condition_func (callable): Function f(x, y, **params) -> (rho, u, v, p).
         """
         # Create SimulationState
         shape = (self.mesh.num_elements, self.basis.Np)
@@ -130,7 +161,13 @@ class Euler2DSolver(BaseSolver):
         )
         
         Q_host = np.zeros((self.mesh.num_elements, self.basis.Np, 4), dtype=self.dtype_np)
-        self._set_initial_conditions(Q_host, initial_condition_func)
+        
+        # Extract IC parameters from config
+        ic_params = {}
+        if not isinstance(self.cfg.initial_condition, str):
+            ic_params = self.cfg.initial_condition.params
+            
+        self._set_initial_conditions(Q_host, initial_condition_func, ic_params)
         
         # Transfer to device state
         self.state.q = wp.array(Q_host, dtype=self.dtype_vec4, device=self.device)
@@ -196,6 +233,7 @@ class Euler2DSolver(BaseSolver):
                 self.mesh.face_geo_factors, 
                 self.mesh.J,
                 self.bc_mask,
+                self.bc_data, # Pass validated BC data
                 self.mesh.x, # Physical X coordinates
                 self.mesh.y, # Physical Y coordinates
                 self.basis.Nfp,
@@ -240,13 +278,13 @@ class Euler2DSolver(BaseSolver):
         dt = CFL * h_eff / max_speed
         return dt
 
-    def _set_initial_conditions(self, Q_host, func):
+    def _set_initial_conditions(self, Q_host, func, params):
         """
         Evaluates the initial condition function at all nodes.
         """
         for i in range(self.mesh.num_elements):
             for j in range(self.basis.Np):
-                rho, u, v, p = func(self.mesh.x_host[i, j], self.mesh.y_host[i, j])
+                rho, u, v, p = func(self.mesh.x_host[i, j], self.mesh.y_host[i, j], **params)
                 Q_host[i, j, :] = eq.primitive_to_conservative([rho, u, v, p])
 
     def filter_solution(self):

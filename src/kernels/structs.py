@@ -25,3 +25,19 @@ class EquationParams64:
     u_inf: wp.float64
     v_inf: wp.float64
     p_inf: wp.float64
+
+@wp.struct
+class BoundaryState32:
+    type: wp.int32
+    v0: wp.float32
+    v1: wp.float32
+    v2: wp.float32
+    v3: wp.float32
+
+@wp.struct
+class BoundaryState64:
+    type: wp.int32
+    v0: wp.float64
+    v1: wp.float64
+    v2: wp.float64
+    v3: wp.float64

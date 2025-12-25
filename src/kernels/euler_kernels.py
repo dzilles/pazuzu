@@ -201,6 +201,7 @@ def compute_surface_term(
     face_geo_factors: wp.array(dtype=Any, ndim=3), 
     J: wp.array(dtype=Any, ndim=2),     
     bc_mask: wp.array(dtype=wp.int32, ndim=2),
+    bc_data: wp.array(dtype=Any, ndim=1), # Array of BoundaryState
     coord_x: wp.array(dtype=Any, ndim=2),
     coord_y: wp.array(dtype=Any, ndim=2),
     Nfp: wp.int32,
@@ -244,10 +245,10 @@ def compute_surface_term(
                 q_outer = q[neighbor_e, neighbor_node_idx]
             else:
                 # --- Boundary Face ---
-                bc_type = bc_mask[e, face_idx]
+                bc_index = bc_mask[e, face_idx]
                 x = coord_x[e, node_idx_local]
                 y = coord_y[e, node_idx_local]
-                q_outer = bc.apply_boundary_condition(bc_type, q_inner, nx, ny, x, y, t, ramp_time, params)
+                q_outer = bc.apply_boundary_condition(bc_index, bc_data, q_inner, nx, ny, x, y, t, ramp_time, params)
             
             # 1. Numerical Flux (F*)
             f_star = zero_vec

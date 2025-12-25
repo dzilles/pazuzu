@@ -3,25 +3,36 @@ from src.kernels import boundary_conditions as bc
 
 class BoundaryConditionManager:
     """
-    Manages the setup and mapping of boundary conditions.
-    Centralizes the logic for mapping configuration strings to integer IDs used by the solver kernels.
+    Manages the setup, validation, and mapping of boundary conditions.
+    Centralizes the logic for mapping configuration strings to integer IDs and parameters
+    used by the solver kernels.
     """
+    REQUIRED_PARAMS = {
+        bc.BC_INLET: ["rho", "u", "v", "p"],
+        bc.BC_OUTLET: ["p_back"]
+    }
+
     def __init__(self, mesh, config):
         self.mesh = mesh
         self.config = config
         
     def setup_boundary_conditions(self):
         """
-        Parses the configuration to setup the boundary condition mask.
-        Maps physical tags from the mesh to solver-specific BC IDs.
+        Parses and validates the configuration to setup the boundary condition mask and data.
         
         Returns:
-            np.array: Boundary condition mask (host side) with shape (num_elements, 4).
+            tuple: (bc_mask_host, bc_data_list)
+                bc_mask_host (np.array): Index into bc_data_list per face (num_elements, 4).
+                bc_data_list (list): List of dictionaries containing BC type and parameters.
         """
-        bc_mask_host = np.zeros((self.mesh.num_elements, 4), dtype=np.int32)
+        # bc_mask will store the index into bc_data_list
+        bc_mask_host = -np.ones((self.mesh.num_elements, 4), dtype=np.int32)
+        bc_data_list = []
         
+        # Map: tag -> index in bc_data_list
+        tag_to_index = {}
+
         if self.config.boundaries:
-            tag_to_bc = {}
             for name, bc_conf in self.config.boundaries.items():
                 tag = -1
                 # Try to map name to tag using mesh info
@@ -36,17 +47,63 @@ class BoundaryConditionManager:
                 if tag != -1:
                     bc_type_str = bc_conf.get('type')
                     bc_id = self._get_bc_id_from_type(bc_type_str)
-                    tag_to_bc[tag] = bc_id
+                    
+                    # Validate and extract parameters
+                    params = bc_conf.get('params', {})
+                    validated_params = self._validate_params(name, bc_id, params)
+                    
+                    # Create data entry
+                    bc_data_list.append({
+                        'type': bc_id,
+                        'params': validated_params
+                    })
+                    tag_to_index[tag] = len(bc_data_list) - 1
             
             # Apply to mask
             for e in range(self.mesh.num_elements):
                 for f in range(4):
                     tag = self.mesh.boundary_tags_host[e, f]
                     if tag > 0:
-                        # Default to Farfield (Freestream) if tag exists but mapping not found
-                        bc_mask_host[e, f] = tag_to_bc.get(tag, bc.BC_FARFIELD)
+                        if tag in tag_to_index:
+                            bc_mask_host[e, f] = tag_to_index[tag]
+                        else:
+                            # Fallback if tag is in mesh but not in config: use Farfield with defaults
+                            # Create a unique entry for this tag
+                            bc_data_list.append({
+                                'type': bc.BC_FARFIELD,
+                                'params': self._get_farfield_defaults()
+                            })
+                            tag_to_index[tag] = len(bc_data_list) - 1
+                            bc_mask_host[e, f] = tag_to_index[tag]
                         
-        return bc_mask_host
+        return bc_mask_host, bc_data_list
+
+    def _validate_params(self, name, bc_id, params):
+        """
+        Validates that all required parameters for a BC type are present.
+        Raises ValueError if any are missing.
+        """
+        required = self.REQUIRED_PARAMS.get(bc_id, [])
+        for p in required:
+            if p not in params:
+                raise ValueError(f"Boundary '{name}' of type '{self._get_type_name(bc_id)}' is missing required parameter: '{p}'")
+        
+        # Specific handling for Farfield: default to freestream if not provided
+        if bc_id == bc.BC_FARFIELD:
+            full_params = self._get_farfield_defaults()
+            full_params.update(params)
+            return full_params
+            
+        return params
+
+    def _get_farfield_defaults(self):
+        """Returns default values for farfield boundaries from physics config."""
+        return {
+            "rho": self.config.physics.rho_inf,
+            "u": self.config.physics.u_inf,
+            "v": self.config.physics.v_inf,
+            "p": self.config.physics.p_inf
+        }
 
     def _get_bc_id_from_type(self, bc_type):
         """
@@ -69,3 +126,10 @@ class BoundaryConditionManager:
         
         # Default fallback
         return bc.BC_FARFIELD
+
+    def _get_type_name(self, bc_id):
+        """Helper to get string name from ID for error messages."""
+        for name, val in bc.__dict__.items():
+            if name.startswith("BC_") and val == bc_id:
+                return name[3:].lower()
+        return "unknown"

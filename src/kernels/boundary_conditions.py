@@ -223,36 +223,55 @@ def apply_extrapolation(q_inner: Any):
     return q_inner
 
 @wp.func
-def apply_farfield(q_inner: Any, nx: Any, ny: Any, t: Any, ramp_time: Any, params: Any):
+def apply_farfield(q_inner: Any, nx: Any, ny: Any, bc_state: Any, params: Any):
     """
-    Applies Characteristic Farfield boundary condition.
+    Applies Characteristic Farfield boundary condition using state from bc_state.
     """
-    if q_inner[0] < params.rho_floor:
-        return get_freestream_state(t, ramp_time, q_inner, params)
-        
-    q_freestream = get_freestream_state(t, ramp_time, q_inner, params)
-    return compute_characteristic_state(q_inner, q_freestream, nx, ny, params)
+    zero = params.one - params.one
+    
+    # Calculate energy for target state
+    kinetic_energy = params.half * bc_state.v0 * (bc_state.v1*bc_state.v1 + bc_state.v2*bc_state.v2)
+    E_target = bc_state.v3 / (params.gamma - params.one) + kinetic_energy
+    q_target = make_vec4_generic(bc_state.v0, bc_state.v0 * bc_state.v1, bc_state.v0 * bc_state.v2, E_target)
+
+    return compute_characteristic_state(q_inner, q_target, nx, ny, params)
 
 @wp.func
-def apply_inlet(q_inner: Any, nx: Any, ny: Any, t: Any, ramp_time: Any, params: Any):
+def apply_inlet(q_inner: Any, nx: Any, ny: Any, t: Any, ramp_time: Any, bc_state: Any, params: Any):
     """
-    Applies Inlet boundary condition using characteristics.
+    Applies Inlet boundary condition using characteristics and state from bc_state.
     """
-    q_inlet = get_freestream_state(t, ramp_time, q_inner, params)
+    # Create target state from bc_state parameters with ramping
+    rho = bc_state.v0
+    
+    factor = nx - nx + params.one
+    if t < ramp_time:
+        factor = t / ramp_time
+        
+    u = bc_state.v1 * factor
+    v = bc_state.v2 * factor
+    p = bc_state.v3
+    
+    rho_u = rho * u
+    rho_v = rho * v
+    kinetic_energy = params.half * rho * (u*u + v*v)
+    E = p / (params.gamma - params.one) + kinetic_energy
+    
+    q_inlet = make_vec4_generic(rho, rho_u, rho_v, E)
     return compute_characteristic_state(q_inner, q_inlet, nx, ny, params)
 
 @wp.func
-def apply_outlet(q_inner: Any, nx: Any, ny: Any, params: Any):
+def apply_outlet(q_inner: Any, nx: Any, ny: Any, bc_state: Any, params: Any):
     """
-    Applies Subsonic Outlet boundary condition using characteristics.
+    Applies Subsonic Outlet boundary condition using characteristics and p_back from bc_state.
     """
-    # Target state: rho, u, v from inner, but p = p_back (usually 1.0)
+    # Target state: rho, u, v from inner, but p = p_back from bc_state.v0
     rho = wp.max(params.rho_floor, q_inner[0])
     inv_rho = params.one / rho
     u = q_inner[1] * inv_rho
     v = q_inner[2] * inv_rho
     
-    p_back = params.one
+    p_back = bc_state.v0
     
     kin = params.half * rho * (u*u + v*v)
     E_target = p_back / (params.gamma - params.one) + kin
@@ -307,7 +326,8 @@ def apply_double_mach_exact(q_inner: Any, nx: Any, ny: Any, x: Any, y: Any, t: A
 
 @wp.func
 def apply_boundary_condition(
-    bc_type: wp.int32, 
+    bc_index: wp.int32,
+    bc_data: Any,
     q_inner: Any, 
     nx: Any, 
     ny: Any,
@@ -320,6 +340,8 @@ def apply_boundary_condition(
     """
     Dispatcher for boundary conditions.
     """
+    bc_state = bc_data[bc_index]
+    bc_type = bc_state.type
     q_outer = q_inner
     
     if bc_type == BC_WALL:
@@ -327,11 +349,11 @@ def apply_boundary_condition(
     elif bc_type == BC_CYLINDER_WALL:
         q_outer = apply_cylinder_wall(q_inner, x, y, params)
     elif bc_type == BC_FARFIELD:
-        q_outer = apply_farfield(q_inner, nx, ny, t, ramp_time, params)
+        q_outer = apply_farfield(q_inner, nx, ny, bc_state, params)
     elif bc_type == BC_INLET:
-        q_outer = apply_inlet(q_inner, nx, ny, t, ramp_time, params)
+        q_outer = apply_inlet(q_inner, nx, ny, t, ramp_time, bc_state, params)
     elif bc_type == BC_OUTLET:
-        q_outer = apply_outlet(q_inner, nx, ny, params)
+        q_outer = apply_outlet(q_inner, nx, ny, bc_state, params)
     elif bc_type == BC_EXTRAPOLATION:
         q_outer = apply_extrapolation(q_inner)
     elif bc_type == BC_DOUBLE_MACH_EXACT:

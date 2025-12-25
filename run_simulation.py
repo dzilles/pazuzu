@@ -89,7 +89,9 @@ def main(config_path):
     basis = Basis(polynomial_degree=cfg.numerics.polynomial_order, device=device, dtype=dtype_warp)
 
     # --- Solver Setup ---
-    ic_name = cfg.initial_condition
+    ic_cfg = cfg.initial_condition
+    ic_name = ic_cfg if isinstance(ic_cfg, str) else ic_cfg.name
+    
     print(f"Initializing Solver with IC: {ic_name}...")
     ic_func = get_initial_condition_func(ic_name)
     
