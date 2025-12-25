@@ -34,6 +34,11 @@ class HDF5Writer:
         if out_dir and not os.path.exists(out_dir):
             os.makedirs(out_dir)
         
+        # Explicitly remove old file to ensure no stale datasets remain
+        if os.path.exists(self.filename):
+            try: os.remove(self.filename)
+            except: pass
+
         # Initialize HDF5 file and write static mesh data
         with h5py.File(self.filename, 'w') as f:
             # Create Mesh Group

@@ -40,7 +40,7 @@ class NumericsConfig(BaseModel):
 
 class IOConfig(BaseModel):
     output_dir: str = Field(default="output", description="Directory for output files")
-    write_interval: float = Field(..., gt=0, description="Simulation time interval between outputs")
+    write_interval: int = Field(..., gt=0, description="Number of simulation steps between outputs")
 
 class SimulationConfig(BaseModel):
     t_final: float = Field(default=1.0, gt=0, description="Final simulation time")

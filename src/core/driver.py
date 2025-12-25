@@ -107,14 +107,12 @@ class TimeIntegrator:
             state.step = step
             
             # --- Logging and Output ---
-            # Basic logging every 10 steps or if output is due
-            should_write = (t - last_output_time) >= write_interval or t >= t_final or step == 1
-
-            if step % 10 == 0 or should_write:
-                 print(f"Step: {step}, t = {t:.4f} / {t_final}, dt = {dt:.3e}")
+            # Output every write_interval steps or when simulation finishes
+            should_write = (step % write_interval == 0) or (t >= t_final)
 
             if should_write:
-                last_output_time = t
+                print(f"Step: {step}, t = {t:.4f} / {t_final}, dt = {dt:.3e}")
+                
                 # Check for NaNs to detect instability early
                 q_np = Q.numpy()
                 if np.isnan(q_np).any():

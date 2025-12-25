@@ -21,7 +21,7 @@ numerics:
 
 io:
   output_dir: "output"
-  write_interval: 1.0
+  write_interval: 100
 
 simulation:
   t_final: 10.0
