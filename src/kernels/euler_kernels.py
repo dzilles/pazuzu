@@ -260,6 +260,7 @@ def compute_surface_term(
             f_n = flux_x(q_inner, params) * nx + flux_y(q_inner, params) * ny
             
             # 3. Flux Jump (F* - F_n) scaled by Surface Jacobian
+            # Strong Form residual: RHS = -div(F) + LIFT * (F_n - F*) / J_vol
             flux_jump = (f_n - f_star) * surf_J
             
             # 4. LIFTing: Add contribution to ALL volume nodes

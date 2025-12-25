@@ -23,10 +23,6 @@ def make_vec4_generic(x: wp.float64, y: wp.float64, z: wp.float64, w: wp.float64
 
 @wp.func
 def get_half_generic(template: wp.float32):
-    return 0.5
-
-@wp.func
-def get_half_generic(template: wp.float32):
     return wp.float32(0.5)
 
 @wp.func
@@ -104,6 +100,7 @@ def get_freestream_state(t: Any, ramp_time: Any, template_q: Any, params: Any):
 def compute_characteristic_state(q_inner: Any, q_target: Any, nx: Any, ny: Any, params: Any):
     """
     Computes the boundary state using Riemann invariants (Characteristic Boundary Conditions).
+    A simplified version that is more robust against reflections.
     """
     # --- Inner Primitives ---
     rho_i = wp.max(params.rho_floor, q_inner[0])
@@ -117,7 +114,6 @@ def compute_characteristic_state(q_inner: Any, q_target: Any, nx: Any, ny: Any, 
     c_i = wp.sqrt(params.gamma * p_i * inv_rho_i)
     
     un_i = u_i * nx + v_i * ny
-    ut_i = -u_i * ny + v_i * nx # Tangential velocity
     
     # --- Target Primitives ---
     rho_t = wp.max(params.rho_floor, q_target[0])
@@ -131,16 +127,16 @@ def compute_characteristic_state(q_inner: Any, q_target: Any, nx: Any, ny: Any, 
     c_t = wp.sqrt(params.gamma * p_t * inv_rho_t)
     
     un_t = u_t * nx + v_t * ny
-    ut_t = -u_t * ny + v_t * nx
     
     # --- Riemann Invariants ---
     gm1 = params.gamma - params.one
     inv_gm1 = params.one / gm1
     two = params.one + params.one
+    half = get_half_generic(nx)
     
     # J+ (outgoing from inner), J- (incoming from target)
-    j_inner = un_i + two * c_i * inv_gm1
-    j_target = un_t - two * c_t * inv_gm1
+    j_plus = un_i + two * c_i * inv_gm1
+    j_minus = un_t - two * c_t * inv_gm1
     
     # --- Flow Regime ---
     zero = params.one - params.one
@@ -151,32 +147,31 @@ def compute_characteristic_state(q_inner: Any, q_target: Any, nx: Any, ny: Any, 
         return q_target
     else:
         # Subsonic Outflow or Inflow
-        un_b = params.half * (j_inner + j_target)
-        c_b = params.half * params.half * gm1 * (j_inner - j_target)
+        un_b = half * (j_plus + j_minus)
+        c_b = half * half * gm1 * (j_plus - j_minus)
         
-        ut_b = zero
-        s_b = zero
-        
-        if un_i >= zero: # Subsonic Outflow (one characteristic enters, three leave)
-            # Entropy and tangential velocity from inner
+        # Determine if we use entropy/tangential from inner or target
+        if un_i >= zero: # Outflow
+            # Tangential velocity and entropy from inner
+            ut_i = -u_i * ny + v_i * nx
             s_i = p_i / wp.pow(rho_i, params.gamma)
-            ut_b = ut_i
-            s_b = s_i
-        else: # Subsonic Inflow (three characteristics enter, one leaves)
-            # Entropy and tangential velocity from target
-            s_t = p_t / wp.pow(rho_t, params.gamma)
-            ut_b = ut_t
-            s_b = s_t
             
-        # Reconstruct boundary state Qb
-        # rho = (c^2 / (gamma * s))^(1/(gamma-1))
-        rho_b = wp.pow((c_b * c_b) / (params.gamma * s_b), inv_gm1)
-        p_b = s_b * wp.pow(rho_b, params.gamma)
-        
-        # Velocity components from un_b and ut_b
-        u_b = un_b * nx - ut_b * ny
-        v_b = un_b * ny + ut_b * nx
-        
+            rho_b = wp.pow((c_b * c_b) / (params.gamma * s_i), inv_gm1)
+            p_b = s_i * wp.pow(rho_b, params.gamma)
+            
+            u_b = un_b * nx - ut_i * ny
+            v_b = un_b * ny + ut_i * nx
+        else: # Inflow
+            # Tangential velocity and entropy from target
+            ut_t = -u_t * ny + v_t * nx
+            s_t = p_t / wp.pow(rho_t, params.gamma)
+            
+            rho_b = wp.pow((c_b * c_b) / (params.gamma * s_t), inv_gm1)
+            p_b = s_t * wp.pow(rho_b, params.gamma)
+            
+            u_b = un_b * nx - ut_t * ny
+            v_b = un_b * ny + ut_t * nx
+            
         # Conservative variables
         rho_u_b = rho_b * u_b
         rho_v_b = rho_b * v_b
