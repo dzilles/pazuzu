@@ -2,6 +2,7 @@ import warp as wp
 from typing import Any
 
 # --- Boundary Condition Type Constants ---
+BC_PERIODIC = -1 # Special internal ID for periodic boundaries during setup
 BC_INTERNAL = 0
 BC_WALL = 1      # Slip Wall (Euler)
 BC_FARFIELD = 2  # Farfield (Freestream / Characteristic)

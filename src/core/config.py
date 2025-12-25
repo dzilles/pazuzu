@@ -57,7 +57,6 @@ class PazuzuConfig(BaseModel):
     solver_type: SolverType = Field(default=SolverType.EULER_2D, description="Type of solver to use")
     mesh_file: str = Field(..., description="Path to the mesh file (.msh)")
     initial_condition: Union[str, InitialConditionConfig] = Field(default="vortex", description="Initial condition configuration")
-    periodic_pairs: List[List[Union[str, int]]] = Field(default_factory=list, description="Periodic boundary pairs [Tag1, Tag2, Axis]")
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
     numerics: NumericsConfig = Field(default_factory=NumericsConfig)
     io: IOConfig = Field(..., description="I/O configuration")

@@ -57,14 +57,30 @@ def main(config_path):
     mesh = Mesh(filename=mesh_path, device=device)
 
     # --- Periodic BC Setup ---
-    if cfg.periodic_pairs:
-        print("Applying Periodic Boundary Conditions...")
-        for pair in cfg.periodic_pairs:
-            # Expecting [Tag1, Tag2, Axis]
-            if len(pair) != 3:
-                print(f"  Warning: Invalid periodic pair format: {pair}. Expected [Tag1, Tag2, Axis].")
-                continue
+    # We now look into cfg.boundaries for type: "periodic"
+    periodic_pairs = []
+    if cfg.boundaries:
+        for name, bc_conf in cfg.boundaries.items():
+            if bc_conf.get("type") == "periodic" and "linked_to" in bc_conf:
+                target = bc_conf["linked_to"]
+                # Optional axis, try to infer if missing
+                axis = bc_conf.get("axis")
+                if axis is None:
+                    # Heuristic: if names contain Left/Right -> x, Top/Bottom -> y
+                    lower_name = name.lower()
+                    lower_target = target.lower()
+                    if ("left" in lower_name or "right" in lower_name) and ("left" in lower_target or "right" in lower_target):
+                        axis = "x"
+                    elif ("top" in lower_name or "bottom" in lower_name) and ("top" in lower_target or "bottom" in lower_target):
+                        axis = "y"
+                    else:
+                        axis = "x" # Fallback
                 
+                periodic_pairs.append([name, target, axis])
+
+    if periodic_pairs:
+        print(f"Applying {len(periodic_pairs)} Periodic Boundary Conditions...")
+        for pair in periodic_pairs:
             t1_raw, t2_raw, axis = pair
             
             # Helper to resolve tag name to ID
@@ -79,7 +95,7 @@ def main(config_path):
             t2 = resolve_tag(t2_raw)
             
             if t1 == -1 or t2 == -1:
-                print(f"  Warning: Could not resolve tags for periodic pair: {pair}")
+                raise ValueError(f"Could not resolve tags for periodic pair: {pair}")
             else:
                 mesh.apply_periodic_condition(t1, t2, axis)
 

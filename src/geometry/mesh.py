@@ -496,7 +496,7 @@ class Mesh:
         print(f"  Found {len(faces1)} faces for Tag {tag1} and {len(faces2)} for Tag {tag2}.")
         
         if len(faces1) != len(faces2):
-            print("  Warning: Number of faces do not match! Periodicity might be incomplete.")
+            raise ValueError(f"Number of faces do not match for periodic Tag {tag1} ({len(faces1)}) and Tag {tag2} ({len(faces2)}). Periodicity is incomplete.")
         
         # 2. Match and Link
         # Sort by match coordinate to make matching O(N log N) or simple O(N) linear scan
@@ -544,7 +544,7 @@ class Mesh:
                 
                 linked_count += 1
             else:
-                print(f"  Warning: No match found for Face {f1} of Element {e1} at coord {coord1}")
+                raise ValueError(f"No periodic match found for Face {f1} of Element {e1} (Tag {tag1}) at coord {coord1} within tolerance {tol}")
 
         print(f"  Linked {linked_count} periodic pairs.")
         

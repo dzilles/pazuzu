@@ -8,9 +8,6 @@ initial_condition:
     yc: 5.0
     u_inf: 1.0
     v_inf: 1.0
-periodic_pairs:
-  - ["Left", "Right", "x"]
-  - ["Top", "Bottom", "y"]
 
 physics:
   gamma: 1.4
@@ -37,10 +34,13 @@ simulation:
 
 boundaries:
   "Left":
-    type: "outflow"
+    type: "periodic"
+    linked_to: "Right"
   "Right":
-    type: "outflow"
+    type: "periodic"
   "Top":
-    type: "outflow"
+    type: "periodic"
+    linked_to: "Bottom"
   "Bottom":
-    type: "outflow"
+    type: "periodic"
+ 

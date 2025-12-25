@@ -65,7 +65,12 @@ class BoundaryConditionManager:
                     tag = self.mesh.boundary_tags_host[e, f]
                     if tag > 0:
                         if tag in tag_to_index:
-                            bc_mask_host[e, f] = tag_to_index[tag]
+                            # If it's periodic but tag is still > 0, it means linking failed or wasn't performed
+                            data_idx = tag_to_index[tag]
+                            if bc_data_list[data_idx]['type'] == bc.BC_PERIODIC:
+                                raise ValueError(f"Boundary Tag {tag} is marked as periodic but remains unlinked in the mesh. Ensure 'linked_to' is specified correctly and 'apply_periodic_condition' was called.")
+                            
+                            bc_mask_host[e, f] = data_idx
                         else:
                             # Fallback if tag is in mesh but not in config: use Farfield with defaults
                             # Create a unique entry for this tag
@@ -115,6 +120,8 @@ class BoundaryConditionManager:
             return bc.BC_CYLINDER_WALL
         elif bc_type == "farfield": 
             return bc.BC_FARFIELD
+        elif bc_type == "periodic":
+            return bc.BC_PERIODIC
         elif bc_type in ["outflow", "extrapolation"]: 
             return bc.BC_EXTRAPOLATION
         elif bc_type == "inlet": 
