@@ -4,19 +4,23 @@ import numpy as np
 import h5py
 import subprocess
 import matplotlib.pyplot as plt
+import pytest
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
-
-from tests.verification.acoustic_pulse.generate_mesh import generate_mesh
 
 def run_simulation():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_dir = os.path.join(script_dir, "output")
     mesh_file = os.path.join(output_dir, "pulse.msh")
+    mesh_script = os.path.join(script_dir, "generate_mesh.py")
     
     print(f"Generating mesh: {mesh_file}")
-    generate_mesh(mesh_file)
+    try:
+        subprocess.run([sys.executable, mesh_script], check=True, cwd=script_dir)
+    except subprocess.CalledProcessError as e:
+        print(f"Mesh generation failed: {e}")
+        sys.exit(1)
     
     config_path = os.path.join(script_dir, "pulse.yaml")
     root_dir = os.path.abspath(os.path.join(script_dir, "../../../"))
@@ -24,8 +28,11 @@ def run_simulation():
     cmd = [sys.executable, "run_simulation.py", config_path]
     print(f"Running: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, cwd=root_dir, check=True)
+        subprocess.run(cmd, cwd=root_dir, check=True, timeout=600)
         print("Simulation finished successfully.")
+    except subprocess.TimeoutExpired:
+        print("❌ Simulation timed out after 10 minutes!")
+        sys.exit(1)
     except subprocess.CalledProcessError as e:
         print(f"Simulation failed: {e}")
         sys.exit(1)
@@ -105,6 +112,11 @@ def verify():
         
         if max_abs_error >= threshold:
             sys.exit(1)
+
+@pytest.mark.slow
+def test_verification():
+    run_simulation()
+    verify()
 
 if __name__ == "__main__":
     run_simulation()
