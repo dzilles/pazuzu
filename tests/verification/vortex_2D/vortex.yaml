@@ -15,7 +15,7 @@ physics:
 
 
 numerics:
-  cfl: 0.5
+  cfl: 0.4
   polynomial_order: 3
   precision: "double"
   flux_type: "hllc"
@@ -24,7 +24,7 @@ numerics:
 
 io:
   output_dir: "output"
-  write_interval: 500
+  write_interval: 100
 
 simulation:
   t_final: 25.0
@@ -43,4 +43,3 @@ boundaries:
     linked_to: "Bottom"
   "Bottom":
     type: "periodic"
- 

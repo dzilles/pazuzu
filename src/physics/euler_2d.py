@@ -62,6 +62,10 @@ class Euler2DSolver(BaseSolver):
             self.params.p_floor = 1.0e-5
             self.params.half = 0.5
             self.params.one = 1.0
+            self.params.mu = 0.0
+            self.params.prandtl = 0.0
+            self.params.cp = 0.0
+            self.params.gas_constant = config.physics.gas_constant
             # Freestream
             self.params.rho_inf = config.physics.rho_inf
             self.params.u_inf = config.physics.u_inf
@@ -78,6 +82,10 @@ class Euler2DSolver(BaseSolver):
             self.params.p_floor = 1.0e-5
             self.params.half = 0.5
             self.params.one = 1.0
+            self.params.mu = 0.0
+            self.params.prandtl = 0.0
+            self.params.cp = 0.0
+            self.params.gas_constant = config.physics.gas_constant
             # Freestream
             self.params.rho_inf = config.physics.rho_inf
             self.params.u_inf = config.physics.u_inf

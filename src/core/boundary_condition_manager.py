@@ -9,7 +9,8 @@ class BoundaryConditionManager:
     """
     REQUIRED_PARAMS = {
         bc.BC_INLET: ["rho", "u", "v", "p"],
-        bc.BC_OUTLET: ["p_back"]
+        bc.BC_OUTLET: ["p_back"],
+        bc.BC_ISOTHERMAL_WALL: ["T_wall"]
     }
 
     def __init__(self, mesh, config):
@@ -130,6 +131,10 @@ class BoundaryConditionManager:
             return bc.BC_OUTLET
         elif bc_type == "dmr_exact":
             return bc.BC_DOUBLE_MACH_EXACT
+        elif bc_type == "no_slip_wall":
+            return bc.BC_NO_SLIP_WALL
+        elif bc_type == "isothermal_wall":
+            return bc.BC_ISOTHERMAL_WALL
         
         # Default fallback
         return bc.BC_FARFIELD

@@ -9,24 +9,33 @@ import pytest
 # Add local directory to path for importing generate_mesh
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from generate_mesh import generate_mesh
-
 def run_simulation():
     # 1. Generate Mesh
-    output_dir = os.path.join(os.path.dirname(__file__), "output")
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.join(test_dir, "output")
     mesh_file = os.path.join(output_dir, "box.msh")
-    print(f"Generating mesh: {mesh_file}")
-    generate_mesh(mesh_file)
+    mesh_script = os.path.join(test_dir, "generate_mesh.py")
     
-    config_path = os.path.join(os.path.dirname(__file__), "vortex.yaml")
+    print(f"Generating mesh: {mesh_file}")
+    try:
+        subprocess.run([sys.executable, mesh_script], check=True, cwd=test_dir)
+    except subprocess.CalledProcessError as e:
+        print(f"Mesh generation failed: {e}")
+        sys.exit(1)
+    
+    config_path = os.path.join(test_dir, "vortex.yaml")
     # Run from root
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+    root_dir = os.path.abspath(os.path.join(test_dir, "../../.."))
     
     cmd = [sys.executable, "run_simulation.py", config_path]
     print(f"Running: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, cwd=root_dir, check=True)
+        # Add a timeout of 10 minutes for safety
+        subprocess.run(cmd, cwd=root_dir, check=True, timeout=600)
         print("Simulation finished successfully.")
+    except subprocess.TimeoutExpired:
+        print("❌ Simulation timed out after 10 minutes!")
+        sys.exit(1)
     except subprocess.CalledProcessError as e:
         print(f"Simulation failed: {e}")
         sys.exit(1)
@@ -148,6 +157,7 @@ def verify():
         print("-" * 45)
         
         for var in variables:
+            print(f"  Generating plot for {var}...")
             # Get Numerical Data
             num_data = f['data'][last_step][var][:]
             ana_data = analytical[var]
@@ -175,7 +185,8 @@ def verify():
             # --- Generate Heatmap ---
             plt.figure(figsize=(8, 6))
             if mode == "nodal":
-                 plt.tricontourf(x, y, abs_diff, levels=20, cmap='inferno')
+                 # tripcolor is faster than tricontourf
+                 plt.tripcolor(x, y, abs_diff, cmap='inferno')
             else:
                  plt.scatter(x, y, c=abs_diff, cmap='inferno', s=10)
                  

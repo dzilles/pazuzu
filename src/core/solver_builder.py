@@ -1,5 +1,6 @@
 from src.core.config import PazuzuConfig, SolverType
 from src.physics.euler_2d import Euler2DSolver
+from src.physics.navier_stokes_2d import NavierStokes2DSolver
 
 class SolverBuilder:
     """
@@ -29,7 +30,6 @@ class SolverBuilder:
         if self.config.solver_type == SolverType.EULER_2D:
             return Euler2DSolver(self.mesh, self.basis, config=self.config)
         elif self.config.solver_type == SolverType.NAVIER_STOKES_2D:
-            # Placeholder for future implementation
-            raise NotImplementedError("Navier-Stokes 2D solver is not yet implemented.")
+            return NavierStokes2DSolver(self.mesh, self.basis, config=self.config)
         else:
             raise ValueError(f"Unknown solver type: {self.config.solver_type}")

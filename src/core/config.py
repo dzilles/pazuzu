@@ -21,6 +21,9 @@ class LimiterType(str, Enum):
 class PhysicsConfig(BaseModel):
     gamma: float = Field(default=1.4, description="Adiabatic index (heat capacity ratio)")
     gas_constant: float = Field(default=287.0, description="Specific gas constant (R)")
+    cp: float = Field(default=1004.5, description="Specific heat at constant pressure (J/kg*K)")
+    mu: float = Field(default=1.0e-5, description="Dynamic viscosity (Pa*s)")
+    prandtl: float = Field(default=0.72, description="Prandtl number")
     # Freestream / Background state
     rho_inf: float = Field(default=1.0, description="Freestream density")
     u_inf: float = Field(default=0.0, description="Freestream x-velocity")

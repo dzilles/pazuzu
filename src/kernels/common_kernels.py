@@ -109,3 +109,27 @@ def rk4_final_update(
     """
     e, i = wp.tid()
     q_accum[e, i] = q_accum[e, i] + weight_accum * dt * rhs[e, i]
+
+@wp.kernel
+def check_nan(
+    q: wp.array(dtype=Any, ndim=2),
+    has_nan: wp.array(dtype=wp.int32, ndim=1)
+):
+    e, i = wp.tid()
+    val = q[e, i]
+    # Check each component for NaN or Inf
+    for c in range(4):
+        if wp.isnan(val[c]) or wp.isinf(val[c]):
+            wp.atomic_add(has_nan, 0, 1)
+
+@wp.kernel
+def check_nan_vec2(
+    q: wp.array(dtype=Any, ndim=2),
+    has_nan: wp.array(dtype=wp.int32, ndim=1)
+):
+    e, i = wp.tid()
+    val = q[e, i]
+    if wp.isnan(val[0]) or wp.isnan(val[1]) or wp.isinf(val[0]) or wp.isinf(val[1]):
+        wp.atomic_add(has_nan, 0, 1)
+
+

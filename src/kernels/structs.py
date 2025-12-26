@@ -7,6 +7,11 @@ class EquationParams32:
     p_floor: wp.float32
     half: wp.float32
     one: wp.float32
+    # Viscous parameters
+    mu: wp.float32
+    prandtl: wp.float32
+    cp: wp.float32
+    gas_constant: wp.float32
     # Freestream / Background state
     rho_inf: wp.float32
     u_inf: wp.float32
@@ -20,6 +25,11 @@ class EquationParams64:
     p_floor: wp.float64
     half: wp.float64
     one: wp.float64
+    # Viscous parameters
+    mu: wp.float64
+    prandtl: wp.float64
+    cp: wp.float64
+    gas_constant: wp.float64
     # Freestream / Background state
     rho_inf: wp.float64
     u_inf: wp.float64
