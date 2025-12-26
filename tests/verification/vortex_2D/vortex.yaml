@@ -15,7 +15,7 @@ physics:
 
 
 numerics:
-  cfl: 0.4
+  cfl: 0.01
   polynomial_order: 3
   precision: "double"
   flux_type: "hllc"
@@ -27,8 +27,7 @@ io:
   write_interval: 100
 
 simulation:
-  t_final: 25.0
-  ramp_time: 1.0
+  t_final: 0.5
   device: "cpu"
   max_steps: 20000
 

@@ -1,8 +1,9 @@
 import gmsh
 import sys
 import os
+import argparse
 
-def generate_mesh(filename):
+def generate_mesh(filename, resolution=20):
     gmsh.initialize()
     gmsh.model.add("box")
 
@@ -28,11 +29,11 @@ def generate_mesh(filename):
     s = gmsh.model.geo.addPlaneSurface([cl])
 
     # Transfinite mesh to get perfect quads
-    # Using 41 points gives 40x40 = 1600 elements
-    gmsh.model.geo.mesh.setTransfiniteCurve(l1, 21) 
-    gmsh.model.geo.mesh.setTransfiniteCurve(l2, 21)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l3, 21)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l4, 21)
+    # Using N+1 points gives N elements
+    gmsh.model.geo.mesh.setTransfiniteCurve(l1, resolution + 1) 
+    gmsh.model.geo.mesh.setTransfiniteCurve(l2, resolution + 1)
+    gmsh.model.geo.mesh.setTransfiniteCurve(l3, resolution + 1)
+    gmsh.model.geo.mesh.setTransfiniteCurve(l4, resolution + 1)
     
     gmsh.model.geo.mesh.setTransfiniteSurface(s)
     gmsh.model.geo.mesh.setRecombine(2, s) # Recombine triangles into quads
@@ -57,7 +58,14 @@ def generate_mesh(filename):
     gmsh.finalize()
 
 if __name__ == "__main__":
-    # Default to saving in 'output' subdirectory relative to this script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_path = os.path.join(script_dir, "output", "box.msh")
-    generate_mesh(output_path)
+    parser = argparse.ArgumentParser(description="Generate a Cartesian mesh for the vortex case.")
+    parser.add_argument("--res", type=int, default=20, help="Number of elements along each edge.")
+    parser.add_argument("--out", type=str, default=None, help="Output mesh filename.")
+    
+    args = parser.parse_args()
+    
+    if args.out is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        args.out = os.path.join(script_dir, "output", f"box_{args.res}.msh")
+    
+    generate_mesh(args.out, args.res)
