@@ -62,6 +62,8 @@ class SimulationState:
         self.q_avg = wp.zeros(num_elements, dtype=dtype, device=device)
         self.q_min = wp.zeros(num_elements, dtype=dtype, device=device)
         self.q_max = wp.zeros(num_elements, dtype=dtype, device=device)
+        self.grad_x = wp.zeros(num_elements, dtype=dtype, device=device)
+        self.grad_y = wp.zeros(num_elements, dtype=dtype, device=device)
 
         # Scalar State
         self.t = 0.0

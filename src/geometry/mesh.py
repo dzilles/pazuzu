@@ -8,19 +8,14 @@ class Mesh:
     """
     Manages the computational mesh (topology and geometry).
 
-    This class handles the creation or loading of the mesh, including vertices, connectivity,
-    and geometric metrics required for the DG solver. It supports both structured Cartesian meshes
-    (generated internally) and unstructured quadrilateral meshes loaded via meshio (e.g., from Gmsh).
+    This class handles the loading of the mesh from files or construction from explicit data, 
+    including vertices, connectivity, and geometric metrics required for the DG solver. 
+    It supports quadrilateral meshes loaded via meshio (e.g., from Gmsh) or constructed 
+    programmatically (e.g., for unit tests).
 
     Attributes:
-        nx (int): Number of elements in x-direction (Cartesian only).
-        ny (int): Number of elements in y-direction (Cartesian only).
         num_elements (int): Total number of elements in the mesh.
         device (str): Warp compute device.
-        x_min (float): Domain minimum x-coordinate.
-        x_max (float): Domain maximum x-coordinate.
-        y_min (float): Domain minimum y-coordinate.
-        y_max (float): Domain maximum y-coordinate.
         dx (float): Characteristic element size (used for CFL).
         vertices (wp.array): Vertex coordinates (NumElements, 4, 2).
         connectivity (wp.array): Neighbor connectivity (NumElements, 4).
@@ -30,49 +25,34 @@ class Mesh:
         Js (wp.array): Surface Jacobian (scaling factors) for faces.
         physical_groups (dict): Mapping from boundary name to integer tag.
     """
-    def __init__(self, nx=None, ny=None, x_min=0.0, x_max=1.0, y_min=0.0, y_max=1.0, filename=None, device="cuda"):
+    def __init__(self, filename=None, vertices=None, connectivity=None, boundary_tags=None, physical_groups=None, device="cuda"):
         """
         Initializes the Mesh.
 
         Args:
-            nx (int, optional): Number of elements in X (for Cartesian mesh).
-            ny (int, optional): Number of elements in Y (for Cartesian mesh).
-            x_min (float, optional): Min X coordinate. Defaults to 0.0.
-            x_max (float, optional): Max X coordinate. Defaults to 1.0.
-            y_min (float, optional): Min Y coordinate. Defaults to 0.0.
-            y_max (float, optional): Max Y coordinate. Defaults to 1.0.
-            filename (str, optional): Path to a mesh file to load. Overrides nx/ny.
+            filename (str, optional): Path to a mesh file to load.
+            vertices (np.array, optional): Vertex coordinates (NumElements, 4, 2).
+            connectivity (np.array, optional): Neighbor connectivity (NumElements, 4, 2).
+            boundary_tags (np.array, optional): Physical boundary tags (NumElements, 4).
+            physical_groups (dict, optional): Mapping names to tags.
             device (str, optional): Compute device ("cpu" or "cuda"). Defaults to "cuda".
 
         Raises:
-            ValueError: If neither filename nor (nx, ny) are provided.
+            ValueError: If neither filename nor (vertices, connectivity) are provided.
         """
         self.device = device
         
         if filename and os.path.exists(filename):
             print(f"Loading mesh from {filename}...")
             self._load_from_file(filename)
-        elif nx is not None and ny is not None:
-            self.nx = nx
-            self.ny = ny
-            self.num_elements = nx * ny
-            
-            self.x_min = x_min
-            self.x_max = x_max
-            self.y_min = y_min
-            self.y_max = y_max
-
-            self.dx = (x_max - x_min) / nx
-            self.dy = (y_max - y_min) / ny
-
-            # --- Mesh Data (Host) ---
-            self.vertices_host = np.zeros((self.num_elements, 4, 2), dtype=np.float32)
-            self.connectivity_host = -np.ones((self.num_elements, 4, 2), dtype=np.int32)
-            
-            self._create_cartesian_mesh()
-            self._create_cartesian_connectivity()
+        elif vertices is not None and connectivity is not None:
+            self.vertices_host = vertices
+            self.connectivity_host = connectivity
+            self.num_elements = len(vertices)
+            self.boundary_tags_host = boundary_tags if boundary_tags is not None else np.zeros((self.num_elements, 4), dtype=np.int32)
+            self.physical_groups = physical_groups if physical_groups is not None else {}
         else:
-            raise ValueError("Either filename or (nx, ny) must be provided.")
+            raise ValueError("Either filename or (vertices and connectivity) must be provided.")
 
         # --- Geometric Factors Arrays (initialized to 0, computed by Solver) ---
         # We prepare these arrays here so they are available as member variables.
@@ -90,6 +70,10 @@ class Mesh:
         # Determinant of Jacobian (dx/dr * dy/ds - ...)
         self.J_host  = np.zeros(self.num_elements, dtype=np.float32)
         
+        # Element metrics: volume (area) and centroids
+        self.vol_host = np.zeros(self.num_elements, dtype=np.float32)
+        self.centroid_host = np.zeros(self.num_elements, dtype=wp.vec2)
+
         # Face metrics: nx, ny, J_surf (NumElements, 4, 3)
         self.face_geo_factors_host = np.zeros((self.num_elements, 4, 3), dtype=np.float32)
         
@@ -116,6 +100,8 @@ class Mesh:
         self.sx = None
         self.sy = None
         self.J  = None
+        self.vol = None
+        self.centroid = None
         self.face_geo_factors = None
         self.x = None
         self.y = None
@@ -205,11 +191,17 @@ class Mesh:
         self.sx_host = np.zeros((self.num_elements, basis.Np), dtype=dtype_np)
         self.sy_host = np.zeros((self.num_elements, basis.Np), dtype=dtype_np)
         self.J_host  = np.zeros((self.num_elements, basis.Np), dtype=dtype_np)
+        self.vol_host = np.zeros(self.num_elements, dtype=dtype_np)
+        self.centroid_host = np.zeros((self.num_elements, 2), dtype=dtype_np)
         self.face_geo_factors_host = np.zeros((self.num_elements, 4, 3), dtype=dtype_np)
         
         # Physical Coordinates
         self.x_host = np.zeros((self.num_elements, basis.Np), dtype=dtype_np)
         self.y_host = np.zeros((self.num_elements, basis.Np), dtype=dtype_np)
+
+        # 2D Quadrature weights for volume calculation
+        # basis.weights_1d (N+1,)
+        w2d = np.kron(basis.weights_1d.numpy(), basis.weights_1d.numpy())
 
         for i in range(self.num_elements):
             v = self.vertices_host[i, :, :] 
@@ -222,10 +214,22 @@ class Mesh:
             dx_dr = dN_dr @ v[:, 0]; dx_ds = dN_ds @ v[:, 0]
             dy_dr = dN_dr @ v[:, 1]; dy_ds = dN_ds @ v[:, 1]
             J = dx_dr * dy_ds - dx_ds * dy_dr
+            
+            # Check for inverted elements
+            if np.any(J <= 0.0):
+                min_j = np.min(J)
+                raise ValueError(f"Mesh contains inverted element at index {i} with Jacobian {min_j}")
+
             self.J_host[i, :] = J
             self.rx_host[i, :] =  dy_ds / J; self.ry_host[i, :] = -dx_ds / J
             self.sx_host[i, :] = -dy_dr / J; self.sy_host[i, :] =  dx_dr / J
             
+            # Compute Element Volume and Centroid
+            vol = np.sum(w2d * J)
+            self.vol_host[i] = vol
+            self.centroid_host[i, 0] = np.sum(w2d * J * self.x_host[i, :]) / vol
+            self.centroid_host[i, 1] = np.sum(w2d * J * self.y_host[i, :]) / vol
+
             # --- 3. Compute Metrics at Quadrature Nodes ---
             if has_quad:
                 self.x_q_host[i, :] = Nq_shape.T @ v[:, 0]
@@ -265,6 +269,8 @@ class Mesh:
         self.sx = wp.array(self.sx_host, dtype=dtype_warp, device=self.device)
         self.sy = wp.array(self.sy_host, dtype=dtype_warp, device=self.device)
         self.J  = wp.array(self.J_host, dtype=dtype_warp, device=self.device)
+        self.vol = wp.array(self.vol_host, dtype=dtype_warp, device=self.device)
+        self.centroid = wp.array(self.centroid_host, dtype=wp.vec2, device=self.device)
         self.face_geo_factors = wp.array(self.face_geo_factors_host, dtype=dtype_warp, device=self.device)
         self.x = wp.array(self.x_host, dtype=dtype_warp, device=self.device)
         self.y = wp.array(self.y_host, dtype=dtype_warp, device=self.device)
@@ -277,69 +283,6 @@ class Mesh:
             self.J_q = wp.array(self.J_q_host, dtype=dtype_warp, device=self.device)
             self.x_q = wp.array(self.x_q_host, dtype=dtype_warp, device=self.device)
             self.y_q = wp.array(self.y_q_host, dtype=dtype_warp, device=self.device)
-
-    def _create_cartesian_mesh(self):
-        """Generates vertices for a structured Cartesian grid."""
-        for j in range(self.ny):
-            for i in range(self.nx):
-                element_id = j * self.nx + i
-                x0 = self.x_min + i * self.dx
-                y0 = self.y_min + j * self.dy
-                
-                # Counter-Clockwise ordering
-                self.vertices_host[element_id, 0, :] = [x0, y0]
-                self.vertices_host[element_id, 1, :] = [x0 + self.dx, y0]
-                self.vertices_host[element_id, 2, :] = [x0 + self.dx, y0 + self.dy]
-                self.vertices_host[element_id, 3, :] = [x0, y0 + self.dy]
-
-    def _create_cartesian_connectivity(self):
-        """
-        Generates connectivity and boundary tags for a structured Cartesian grid.
-        
-        Faces are ordered: 0: Bottom, 1: Right, 2: Top, 3: Left.
-        Assigns standard physical tags: 1=Bottom, 2=Top, 3=Left (Inlet), 4=Right (Outlet).
-        """
-        self.boundary_tags_host = np.zeros((self.num_elements, 4), dtype=np.int32)
-        
-        for j in range(self.ny):
-            for i in range(self.nx):
-                element_id = j * self.nx + i
-
-                # Left (Face 3)
-                if i > 0:
-                    ni, nj = i - 1, j
-                    self.connectivity_host[element_id, 3] = [nj * self.nx + ni, 1]
-                else:
-                    self.boundary_tags_host[element_id, 3] = 3 # Left Tag (Inlet)
-
-                # Right (Face 1)
-                if i < self.nx - 1:
-                    ni, nj = i + 1, j
-                    self.connectivity_host[element_id, 1] = [nj * self.nx + ni, 3]
-                else:
-                    self.boundary_tags_host[element_id, 1] = 4 # Right Tag (Outlet)
-
-                # Bottom (Face 0)
-                if j > 0:
-                    ni, nj = i, j - 1
-                    self.connectivity_host[element_id, 0] = [nj * self.nx + ni, 2]
-                else:
-                    self.boundary_tags_host[element_id, 0] = 1 # Bottom Tag
-
-                # Top (Face 2)
-                if j < self.ny - 1:
-                    ni, nj = i, j + 1
-                    self.connectivity_host[element_id, 2] = [nj * self.nx + ni, 0]
-                else:
-                    self.boundary_tags_host[element_id, 2] = 2 # Top Tag
-        
-        # Define physical groups for Cartesian mesh to allow named BCs
-        self.physical_groups = {
-            "Bottom": 1,
-            "Top": 2,
-            "Left": 3,
-            "Right": 4
-        }
 
     def _load_from_file(self, filename):
         """

@@ -189,7 +189,14 @@ class Basis:
             Lambda[k, k] = sigma
             
         # 3. Compute 1D Filter Matrix F1d = V * Lambda * V^(-1)
-        V_inv = np.linalg.inv(V)
+        # Use the orthogonality of Legendre polynomials and quadrature to compute V_inv.
+        # (V^-1)_kj = (2k+1)/2 * P_k(x_j) * w_j
+        weights = self.weights_1d.numpy()
+        V_inv = np.zeros((self.N1, self.N1))
+        for k in range(self.N1):
+            P_k = legendre(k)
+            V_inv[k, :] = (2.0 * k + 1.0) / 2.0 * P_k(nodes) * weights
+
         F1d = V @ Lambda @ V_inv
         
         # 4. Compute 2D Filter Matrix via Tensor Product

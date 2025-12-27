@@ -2,7 +2,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union, Literal
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, ConfigDict
 
 class FluxType(str, Enum):
     RUSANOV = "rusanov"
@@ -19,18 +19,18 @@ class LimiterType(str, Enum):
     MINMOD = "minmod"
 
 class PhysicsConfig(BaseModel):
-    gamma: float = Field(default=1.4, description="Adiabatic index (heat capacity ratio)")
-    gas_constant: float = Field(default=287.0, description="Specific gas constant (R)")
-    cp: float = Field(default=1004.5, description="Specific heat at constant pressure (J/kg*K)")
-    mu: float = Field(default=1.0e-5, description="Dynamic viscosity (Pa*s)")
-    prandtl: float = Field(default=0.72, description="Prandtl number")
+    gamma: float = Field(default=1.4, gt=1.0, description="Adiabatic index (heat capacity ratio)")
+    gas_constant: float = Field(default=287.0, gt=0.0, description="Specific gas constant (R)")
+    cp: float = Field(default=1004.5, gt=0.0, description="Specific heat at constant pressure (J/kg*K)")
+    mu: float = Field(default=1.0e-5, ge=0.0, description="Dynamic viscosity (Pa*s)")
+    prandtl: float = Field(default=0.72, ge=0.0, description="Prandtl number")
     # Freestream / Background state
-    rho_inf: float = Field(default=1.0, description="Freestream density")
+    rho_inf: float = Field(default=1.0, gt=0.0, description="Freestream density")
     u_inf: float = Field(default=0.0, description="Freestream x-velocity")
     v_inf: float = Field(default=0.0, description="Freestream y-velocity")
-    p_inf: float = Field(default=1.0, description="Freestream pressure")
-    rho_floor: float = Field(default=1.0e-5, description="Minimum allowed density")
-    p_floor: float = Field(default=1.0e-5, description="Minimum allowed pressure")
+    p_inf: float = Field(default=1.0, gt=0.0, description="Freestream pressure")
+    rho_floor: float = Field(default=1.0e-5, gt=0.0, description="Minimum allowed density")
+    p_floor: float = Field(default=1.0e-5, gt=0.0, description="Minimum allowed pressure")
 
 class NumericsConfig(BaseModel):
     cfl: float = Field(default=0.4, gt=0, description="CFL number (must be > 0)")
@@ -43,6 +43,7 @@ class NumericsConfig(BaseModel):
     filter_order: int = Field(default=16, description="Filter order")
     over_integration_order: int = Field(default=0, ge=0, description="Order of quadrature for over-integration (0 = disabled, otherwise Nq_1d)")
     min_dt: float = Field(default=1e-15, gt=0, description="Minimum allowable time step before aborting")
+    hllc_epsilon: float = Field(default=1.0e-8, description="Small epsilon for HLLC wave speed computation")
 
 class IOConfig(BaseModel):
     output_dir: str = Field(default="output", description="Directory for output files")
@@ -69,8 +70,7 @@ class PazuzuConfig(BaseModel):
     simulation: SimulationConfig = Field(default_factory=SimulationConfig)
     boundaries: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Boundary conditions map")
 
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
     @classmethod
     def from_yaml(cls, path: str) -> "PazuzuConfig":

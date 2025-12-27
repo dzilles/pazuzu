@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from src.core.boundary_condition_manager import BoundaryConditionManager
 from src.geometry.mesh import Mesh
 from src.kernels import boundary_conditions as bc
+from tests.test_utils import create_dummy_mesh
 
 class MockPhysics:
     def __init__(self):
@@ -19,10 +20,10 @@ class MockConfig:
 
 class TestBoundaryConditionManager(unittest.TestCase):
     def test_cartesian_mapping(self):
-        # Create a small Cartesian mesh (internally generated)
+        # Create a small Cartesian mesh (using utility)
         # nx=2, ny=2. 
         # Boundary tags should be: Bottom=1, Top=2, Left=3, Right=4
-        mesh = Mesh(nx=2, ny=2, device="cpu")
+        mesh = create_dummy_mesh(nx=2, ny=2, device="cpu")
         
         # Config using descriptive names
         # This is what we WANT to work

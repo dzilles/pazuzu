@@ -17,6 +17,7 @@ class EquationParams32:
     u_inf: wp.float32
     v_inf: wp.float32
     p_inf: wp.float32
+    epsilon: wp.float32
 
 @wp.struct
 class EquationParams64:
@@ -35,6 +36,7 @@ class EquationParams64:
     u_inf: wp.float64
     v_inf: wp.float64
     p_inf: wp.float64
+    epsilon: wp.float64
 
 @wp.struct
 class BoundaryState32:

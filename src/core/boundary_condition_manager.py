@@ -86,18 +86,32 @@ class BoundaryConditionManager:
 
     def _validate_params(self, name, bc_id, params):
         """
-        Validates that all required parameters for a BC type are present.
-        Raises ValueError if any are missing.
+        Validates that all required parameters for a BC type are present and physically valid.
+        Raises ValueError if any are missing or have invalid values.
         """
         required = self.REQUIRED_PARAMS.get(bc_id, [])
         for p in required:
             if p not in params:
                 raise ValueError(f"Boundary '{name}' of type '{self._get_type_name(bc_id)}' is missing required parameter: '{p}'")
         
+        # Physical validity checks
+        for p, value in params.items():
+            if p in ["rho", "p", "T_wall"]:
+                if value <= 0:
+                    raise ValueError(f"Boundary '{name}' has invalid {p}: {value}. Must be positive.")
+            elif p == "p_back": # Outlet back pressure
+                if value <= 0:
+                    raise ValueError(f"Boundary '{name}' has invalid p_back: {value}. Must be positive.")
+        
         # Specific handling for Farfield: default to freestream if not provided
         if bc_id == bc.BC_FARFIELD:
             full_params = self._get_farfield_defaults()
             full_params.update(params)
+            # Re-validate the merged farfield params
+            for p, value in full_params.items():
+                if p in ["rho", "p"]:
+                    if value <= 0:
+                        raise ValueError(f"Farfield boundary '{name}' has invalid {p}: {value}. Must be positive.")
             return full_params
             
         return params

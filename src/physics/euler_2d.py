@@ -71,6 +71,7 @@ class Euler2DSolver(BaseSolver):
             self.params.u_inf = config.physics.u_inf
             self.params.v_inf = config.physics.v_inf
             self.params.p_inf = config.physics.p_inf
+            self.params.epsilon = config.numerics.hllc_epsilon
         else:
             self.dtype_np = np.float32
             self.dtype_warp = wp.float32
@@ -91,6 +92,7 @@ class Euler2DSolver(BaseSolver):
             self.params.u_inf = config.physics.u_inf
             self.params.v_inf = config.physics.v_inf
             self.params.p_inf = config.physics.p_inf
+            self.params.epsilon = config.numerics.hllc_epsilon
 
         # Compute Geometric Factors (Metrics & Jacobians) & Physical Coordinates
         # This now resides in the Mesh class to prevent duplication.
@@ -254,9 +256,10 @@ class Euler2DSolver(BaseSolver):
         
         # --- Surface Integral ---
         # Adds LIFT * (NumericalFlux - NormalFlux)
+        # Parallelize over (Elements, Faces, FaceNodes)
         wp.launch(
             kernel=wk.compute_surface_term,
-            dim=self.mesh.num_elements,
+            dim=(self.mesh.num_elements, 4, self.basis.Nfp),
             inputs=[
                 q,
                 self.state.f_x_n,
@@ -355,14 +358,15 @@ class Euler2DSolver(BaseSolver):
             device=self.device
         )
 
+        # 2. Compute Neighbor Min/Max (required for both limiters)
+        wp.launch(
+            kernel=wk.compute_neighbor_min_max,
+            dim=self.mesh.num_elements,
+            inputs=[self.state.q_avg, self.state.q_min, self.state.q_max, self.mesh.connectivity, self.params],
+            device=self.device
+        )
+
         if self.cfg.numerics.limiter == LimiterType.BARTH_JESPERSEN:
-            # 2. Compute Neighbor Min/Max
-            wp.launch(
-                kernel=wk.compute_neighbor_min_max,
-                dim=self.mesh.num_elements,
-                inputs=[self.state.q_avg, self.state.q_min, self.state.q_max, self.mesh.connectivity, self.params],
-                device=self.device
-            )
             # 3. Apply Barth-Jespersen
             wp.launch(
                 kernel=wk.apply_barth_jespersen_limiter,
@@ -371,11 +375,39 @@ class Euler2DSolver(BaseSolver):
                 device=self.device
             )
         elif self.cfg.numerics.limiter == LimiterType.MINMOD:
-            # Apply Minmod
+            # 2. Compute Gradients using Green-Gauss
+            wp.launch(
+                kernel=wk.compute_gradients_green_gauss,
+                dim=self.mesh.num_elements,
+                inputs=[
+                    self.state.q_avg, 
+                    self.mesh.connectivity, 
+                    self.mesh.face_geo_factors, 
+                    self.mesh.vol,
+                    self.state.grad_x,
+                    self.state.grad_y,
+                    self.params
+                ],
+                device=self.device
+            )
+
+            # 3. Apply Gradient-based Minmod
             wp.launch(
                 kernel=wk.apply_minmod_limiter,
                 dim=self.mesh.num_elements,
-                inputs=[self.state.q, self.state.q_avg, self.mesh.connectivity, self.basis.Np, self.params],
+                inputs=[
+                    self.state.q, 
+                    self.state.q_avg, 
+                    self.state.q_min, 
+                    self.state.q_max,
+                    self.state.grad_x,
+                    self.state.grad_y,
+                    self.mesh.centroid,
+                    self.mesh.x,
+                    self.mesh.y,
+                    self.basis.Np, 
+                    self.params
+                ],
                 device=self.device
             )
 

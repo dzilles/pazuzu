@@ -88,7 +88,7 @@ def hllc_flux(
         denom = rho_l * (s_l - un_l) - rho_r * (s_r - un_r)
         
         # Safety for denom
-        if wp.abs(denom) < 1.0e-8:
+        if wp.abs(denom) < params.epsilon:
             s_star = params.half * (un_l + un_r) # Fallback to average
         else:
             s_star = numer / denom
@@ -259,71 +259,74 @@ def compute_surface_term(
     params: Any
 ):
     """
-    Computes the surface integral.
-    KEY FIX: Passes Projected Fluxes to the Riemann Solver to ensure consistency.
+    Computes the surface integral by parallelizing over each face node.
+    Exploits the sparsity of the LIFT matrix for GLL nodes.
     """
-    e = wp.tid()
-    zero_vec = q[e, 0] - q[e, 0]
-
-    for face_idx in range(4):
-        nx = face_geo_factors[e, face_idx, 0]
-        ny = face_geo_factors[e, face_idx, 1]
-        surf_J = face_geo_factors[e, face_idx, 2]
-        neighbor_e = connectivity[e, face_idx] 
+    e, face_idx, k = wp.tid()
+    
+    # 1. Geometry and Connectivity
+    nx = face_geo_factors[e, face_idx, 0]
+    ny = face_geo_factors[e, face_idx, 1]
+    surf_J = face_geo_factors[e, face_idx, 2]
+    neighbor_e = connectivity[e, face_idx] 
+    
+    vol_idx = face_map[face_idx, k]
+    
+    # --- 2. Load Data (States AND Fluxes) ---
+    q_inner = q[e, vol_idx]
+    
+    # Projected Flux from Interior
+    fx_in = f_x[e, vol_idx]
+    fy_in = f_y[e, vol_idx]
+    f_n_inner = fx_in * nx + fy_in * ny
+    
+    q_outer = q_inner # Default
+    f_n_outer = f_n_inner # Default
+    
+    if neighbor_e >= 0:
+        # Neighbor exists: Load its State AND its Projected Flux
+        neighbor_face = neighbor_face_indices[e, face_idx]
+        neighbor_node_idx = face_map[neighbor_face, k]
         
-        for k in range(Nfp):
-            node_idx_local = face_map[face_idx, k]
-            
-            # --- 1. Load Data (States AND Fluxes) ---
-            q_inner = q[e, node_idx_local]
-            
-            # Projected Flux from Interior
-            fx_in = f_x[e, node_idx_local]
-            fy_in = f_y[e, node_idx_local]
-            f_n_inner = fx_in * nx + fy_in * ny
-            
-            q_outer = q_inner # Default
-            f_n_outer = f_n_inner # Default
-            
-            if neighbor_e >= 0:
-                # Neighbor exists: Load its State AND its Projected Flux
-                neighbor_face = neighbor_face_indices[e, face_idx]
-                neighbor_node_idx = face_map[neighbor_face, k]
-                
-                q_outer = q[neighbor_e, neighbor_node_idx]
-                
-                fx_nb = f_x[neighbor_e, neighbor_node_idx]
-                fy_nb = f_y[neighbor_e, neighbor_node_idx]
-                f_n_outer = fx_nb * nx + fy_nb * ny
-                
-            else:
-                # Boundary: Compute Boundary State
-                bc_index = bc_mask[e, face_idx]
-                x = coord_x[e, node_idx_local]
-                y = coord_y[e, node_idx_local]
-                q_outer = bc.apply_boundary_condition(bc_index, bc_data, q_inner, nx, ny, x, y, t, ramp_time, params)
-                
-                # Boundary Flux: We cannot get a projected flux from outside.
-                # We use the analytical flux of the boundary state.
-                fx_bc = flux_x(q_outer, params)
-                fy_bc = flux_y(q_outer, params)
-                f_n_outer = fx_bc * nx + fy_bc * ny
-            
-            # --- 2. Calculate Riemann Flux using Projected Flux inputs ---
-            f_star = zero_vec
-            if flux_type == FLUX_HLLC:
-                f_star = hllc_flux(q_inner, q_outer, f_n_inner, f_n_outer, nx, ny, params)
-            else:
-                f_star = rusanov_flux(q_inner, q_outer, f_n_inner, f_n_outer, nx, ny, params)
-            
-            # --- 3. Flux Jump ---
-            flux_jump = (f_n_inner - f_star) * surf_J
-            
-            lift_col = face_idx * Nfp + k
-            for i in range(q.shape[1]):
-                lift_val = LIFT[i, lift_col]
-                vol_J = J[e, i]
-                rhs[e, i] += lift_val * flux_jump / vol_J
+        q_outer = q[neighbor_e, neighbor_node_idx]
+        
+        fx_nb = f_x[neighbor_e, neighbor_node_idx]
+        fy_nb = f_y[neighbor_e, neighbor_node_idx]
+        f_n_outer = fx_nb * nx + fy_nb * ny
+        
+    else:
+        # Boundary: Compute Boundary State
+        bc_index = bc_mask[e, face_idx]
+        x = coord_x[e, vol_idx]
+        y = coord_y[e, vol_idx]
+        q_outer = bc.apply_boundary_condition(bc_index, bc_data, q_inner, nx, ny, x, y, t, ramp_time, params)
+        
+        # Boundary Flux: We use the analytical flux of the boundary state.
+        fx_bc = flux_x(q_outer, params)
+        fy_bc = flux_y(q_outer, params)
+        f_n_outer = fx_bc * nx + fy_bc * ny
+    
+    # --- 3. Calculate Riemann Flux using Projected Flux inputs ---
+    zero_vec = q_inner - q_inner
+    f_star = zero_vec
+    if flux_type == FLUX_HLLC:
+        f_star = hllc_flux(q_inner, q_outer, f_n_inner, f_n_outer, nx, ny, params)
+    else:
+        f_star = rusanov_flux(q_inner, q_outer, f_n_inner, f_n_outer, nx, ny, params)
+    
+    # --- 4. Flux Jump ---
+    flux_jump = (f_n_inner - f_star) * surf_J
+    
+    # --- 5. LIFT Operator (Sparse Application) ---
+    # For GLL Nodal basis, each face node maps to exactly one volume node.
+    lift_col = face_idx * Nfp + k
+    lift_val = LIFT[vol_idx, lift_col]
+    
+    # Accumulate contribution to the volume node
+    # Since corner nodes are shared by two faces, we use atomic_add
+    vol_J = J[e, vol_idx]
+    val = (lift_val * flux_jump) / vol_J
+    wp.atomic_add(rhs, e, vol_idx, val)
 
 @wp.kernel
 def compute_max_wave_speed(
@@ -438,49 +441,118 @@ def minmod(a: Any, b: Any, c: Any):
     return res
 
 @wp.kernel
-def apply_minmod_limiter(
-    q: wp.array(dtype=Any, ndim=2),
+def compute_gradients_green_gauss(
     q_avg: wp.array(dtype=Any, ndim=1),
     connectivity: wp.array(dtype=wp.int32, ndim=2),
-    Np: wp.int32,
+    face_geo_factors: wp.array(dtype=Any, ndim=3),
+    vol: wp.array(dtype=Any, ndim=1),
+    grad_x: wp.array(dtype=Any, ndim=1),
+    grad_y: wp.array(dtype=Any, ndim=1),
     params: Any
 ):
     """
-    Applies a simple Minmod limiter (element-wise).
-    This is a simplified version that limits the cell difference from the average.
+    Estimates the cell-center gradient using Green-Gauss theorem.
+    grad(q) = (1/Vol) * sum_faces (q_face * n * area)
     """
     e = wp.tid()
     
     avg_e = q_avg[e]
+    v_e = vol[e]
+    
     zero_vec = avg_e - avg_e
+    gx = zero_vec
+    gy = zero_vec
     
-    # Simple 1D-like minmod for quads (Simplified)
-    # We look at neighbor averages to estimate slopes
-    avg_l = avg_e
-    avg_r = avg_e
-    avg_b = avg_e
-    avg_t = avg_e
+    for face_idx in range(4):
+        nx = face_geo_factors[e, face_idx, 0]
+        ny = face_geo_factors[e, face_idx, 1]
+        area = face_geo_factors[e, face_idx, 2]
+        
+        neighbor_e = connectivity[e, face_idx]
+        
+        q_nb = avg_e # Default for boundary (simple extrapolation)
+        if neighbor_e >= 0:
+            q_nb = q_avg[neighbor_e]
+        
+        # Arithmetic average at face
+        q_face = params.half * (avg_e + q_nb)
+        
+        # Accumulate: q_face * n * area
+        gx += q_face * nx * area
+        gy += q_face * ny * area
+        
+    grad_x[e] = gx / v_e
+    grad_y[e] = gy / v_e
+
+@wp.kernel
+def apply_minmod_limiter(
+    q: wp.array(dtype=Any, ndim=2),
+    q_avg: wp.array(dtype=Any, ndim=1),
+    q_min: wp.array(dtype=Any, ndim=1),
+    q_max: wp.array(dtype=Any, ndim=1),
+    grad_x: wp.array(dtype=Any, ndim=1),
+    grad_y: wp.array(dtype=Any, ndim=1),
+    centroid: wp.array(dtype=wp.vec2, ndim=1),
+    coord_x: wp.array(dtype=Any, ndim=2),
+    coord_y: wp.array(dtype=Any, ndim=2),
+    Np: wp.int32,
+    params: Any
+):
+    """
+    Applies a gradient-based Minmod slope limiter.
+    Ensures reconstructed nodal values are within neighbor min/max.
+    """
+    e = wp.tid()
     
-    # Face 3: Left, Face 1: Right, Face 0: Bottom, Face 2: Top
-    if connectivity[e, 3] >= 0: avg_l = q_avg[connectivity[e, 3]]
-    if connectivity[e, 1] >= 0: avg_r = q_avg[connectivity[e, 1]]
-    if connectivity[e, 0] >= 0: avg_b = q_avg[connectivity[e, 0]]
-    if connectivity[e, 2] >= 0: avg_t = q_avg[connectivity[e, 2]]
+    avg_e = q_avg[e]
+    gx = grad_x[e]
+    gy = grad_y[e]
+    c_e = centroid[e]
+    
+    min_e = q_min[e]
+    max_e = q_max[e]
+    
+    # Use template to get correct zero/one scalars of the same precision
+    zero_scalar = avg_e[0] - avg_e[0]
+    one_scalar = params.one
+    
+    # Standard Minmod-like slope limiter phi
+    phi = one_scalar
+    eps = params.rho_floor * params.rho_floor # Small tolerance
     
     for j in range(Np):
-        q_j = q[e, j]
-        diff = q_j - avg_e
+        dx = coord_x[e, j] - c_e[0]
+        dy = coord_y[e, j] - c_e[1]
         
-        limited_q_j = avg_e
+        # Reconstruction: q_j = q_avg + phi * (grad_q dot delta_x)
+        dq = gx * dx + gy * dy
+        
         for c in range(4):
-            # minmod(q_j - avg_e, avg_e - avg_left, avg_right - avg_e)
-            val_c = minmod(diff[c], avg_e[c] - avg_l[c], avg_r[c] - avg_e[c])
-            # Also check Y direction
-            val_c = minmod(val_c, avg_e[c] - avg_b[c], avg_t[c] - avg_e[c])
-            
-            limited_q_j = bc.set_vec4_generic(limited_q_j, c, avg_e[c] + val_c)
-            
-        q[e, j] = limited_q_j
+            if wp.abs(dq[c]) > eps:
+                if dq[c] > zero_scalar:
+                    ratio = (max_e[c] - avg_e[c]) / dq[c]
+                    phi = wp.min(phi, ratio)
+                else:
+                    ratio = (min_e[c] - avg_e[c]) / dq[c]
+                    phi = wp.min(phi, ratio)
+                    
+    phi = wp.clamp(phi, zero_scalar, one_scalar)
+    
+    # Apply limited gradient reconstruction
+    if phi < one_scalar:
+        for j in range(Np):
+            dx = coord_x[e, j] - c_e[0]
+            dy = coord_y[e, j] - c_e[1]
+            q[e, j] = avg_e + phi * (gx * dx + gy * dy)
+    else:
+        # Even if phi=1, we still reconstruct to ensure linear consistency 
+        # (or we could just leave high-order DG nodes as is, but that's risky for shocks)
+        # Actually, for DG, if phi=1 we usually keep the original DG polynomial.
+        # But this is a slope limiter which reduces DG to P1-limited.
+        for j in range(Np):
+            dx = coord_x[e, j] - c_e[0]
+            dy = coord_y[e, j] - c_e[1]
+            q[e, j] = avg_e + gx * dx + gy * dy
 
 @wp.kernel
 def apply_barth_jespersen_limiter(
