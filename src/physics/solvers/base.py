@@ -40,7 +40,7 @@ class BaseSolver(ABC):
     @abstractmethod
     def initialize(self, initial_condition_func):
         """
-        Initializes the state vector Q based on a provided function.
+        Initializes the state vector q based on a provided function.
 
         Args:
             initial_condition_func (callable): A function `f(x, y)` returning primitive variables.
@@ -50,7 +50,7 @@ class BaseSolver(ABC):
     @abstractmethod
     def compute_rhs(self, t, dt, q, rhs):
         """
-        Computes the right-hand side (RHS) of the semi-discrete equation dQ/dt = RHS(Q).
+        Computes the right-hand side (RHS) of the semi-discrete equation dq/dt = RHS(q).
 
         This method encapsulates the spatial discretization (volume integrals, surface fluxes).
 

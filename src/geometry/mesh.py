@@ -201,7 +201,7 @@ class Mesh:
 
         # 2D Quadrature weights for volume calculation
         # basis.weights_1d (N+1,)
-        w2d = np.kron(basis.weights_1d.numpy(), basis.weights_1d.numpy())
+        w2d_host = np.kron(basis.weights_1d.numpy(), basis.weights_1d.numpy())
 
         for i in range(self.num_elements):
             v = self.vertices_host[i, :, :] 
@@ -225,10 +225,10 @@ class Mesh:
             self.sx_host[i, :] = -dy_dr / J; self.sy_host[i, :] =  dx_dr / J
             
             # Compute Element Volume and Centroid
-            vol = np.sum(w2d * J)
+            vol = np.sum(w2d_host * J)
             self.vol_host[i] = vol
-            self.centroid_host[i, 0] = np.sum(w2d * J * self.x_host[i, :]) / vol
-            self.centroid_host[i, 1] = np.sum(w2d * J * self.y_host[i, :]) / vol
+            self.centroid_host[i, 0] = np.sum(w2d_host * J * self.x_host[i, :]) / vol
+            self.centroid_host[i, 1] = np.sum(w2d_host * J * self.y_host[i, :]) / vol
 
             # --- 3. Compute Metrics at Quadrature Nodes ---
             if has_quad:

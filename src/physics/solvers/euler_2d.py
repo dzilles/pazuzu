@@ -16,7 +16,7 @@ class Euler2DSolver(BaseSolver):
     Solves the 2D Euler equations using a Nodal Discontinuous Galerkin method.
 
     This solver manages the setup and execution of the spatial discretization for the Euler equations.
-    It handles the initialization of the state vector Q, computation of geometric factors for the mesh,
+    It handles the initialization of the state vector q, computation of geometric factors for the mesh,
     setup of boundary conditions, and the computation of the right-hand side (RHS) using Warp kernels.
 
     Attributes:
@@ -111,10 +111,10 @@ class Euler2DSolver(BaseSolver):
         )
 
         # Inverse of Mass Matrix (diagonal)
-        weights_2d = np.kron(self.basis.weights_1d.numpy(), self.basis.weights_1d.numpy())
-        M_inv_diag_host = 1.0 / weights_2d
+        weights_2d_host = np.kron(self.basis.weights_1d.numpy(), self.basis.weights_1d.numpy())
+        M_inv_diag_host = 1.0 / weights_2d_host
         self.M_inv_diag = wp.array(M_inv_diag_host, dtype=self.dtype_warp, device=self.device)
-        self.weights_2d = wp.array(weights_2d, dtype=self.dtype_warp, device=self.device)
+        self.weights_2d = wp.array(weights_2d_host, dtype=self.dtype_warp, device=self.device)
         
         # Buffer for global max wave speed reduction
         self.max_wave_speed = wp.zeros(1, dtype=self.dtype_warp, device=self.device)
@@ -128,7 +128,7 @@ class Euler2DSolver(BaseSolver):
             
     def initialize(self, initial_condition_func):
         """
-        Initializes the state vector Q using the provided initial condition function and configuration.
+        Initializes the state vector q using the provided initial condition function and configuration.
 
         Args:
             initial_condition_func (callable): Function f(x, y, **params) -> (rho, u, v, p).
@@ -143,17 +143,17 @@ class Euler2DSolver(BaseSolver):
             basis=self.basis
         )
         
-        Q_host = np.zeros((self.mesh.num_elements, self.basis.Np, 4), dtype=self.dtype_np)
+        q_host = np.zeros((self.mesh.num_elements, self.basis.Np, 4), dtype=self.dtype_np)
         
         # Extract IC parameters from config
         ic_params = {}
         if not isinstance(self.cfg.initial_condition, str):
             ic_params = self.cfg.initial_condition.params
             
-        self._set_initial_conditions(Q_host, initial_condition_func, ic_params)
+        self._set_initial_conditions(q_host, initial_condition_func, ic_params)
         
         # Transfer to device state
-        self.state.q = wp.array(Q_host, dtype=self.dtype_vec4, device=self.device)
+        self.state.q = wp.array(q_host, dtype=self.dtype_vec4, device=self.device)
 
     def compute_rhs(self, t, dt, q, rhs):
         """
@@ -230,7 +230,7 @@ class Euler2DSolver(BaseSolver):
         # Adds LIFT * (NumericalFlux - NormalFlux)
         # Parallelize over (Elements, Faces, FaceNodes)
         wp.launch(
-            kernel=wk.compute_surface_term,
+            kernel=wk.accumulate_interface_fluxes,
             dim=(self.mesh.num_elements, 4, self.basis.Nfp),
             inputs=[
                 q,
@@ -289,14 +289,14 @@ class Euler2DSolver(BaseSolver):
         dt = CFL * h_eff / max_speed
         return dt
 
-    def _set_initial_conditions(self, Q_host, func, params):
+    def _set_initial_conditions(self, q_host, func, params):
         """
         Evaluates the initial condition function at all nodes.
         """
         for i in range(self.mesh.num_elements):
             for j in range(self.basis.Np):
                 rho, u, v, p = func(self.mesh.x_host[i, j], self.mesh.y_host[i, j], **params)
-                Q_host[i, j, :] = eq.primitive_to_conservative([rho, u, v, p])
+                q_host[i, j, :] = eq.primitive_to_conservative([rho, u, v, p])
 
     def filter_solution(self):
         """

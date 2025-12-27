@@ -237,7 +237,7 @@ def compute_projected_fluxes(
     f_y_n[e, i] = fy_acc
 
 @wp.kernel
-def compute_surface_term(
+def accumulate_interface_fluxes(
     q: wp.array(dtype=Any, ndim=2),        
     f_x: wp.array(dtype=Any, ndim=2),      # Projected Flux X
     f_y: wp.array(dtype=Any, ndim=2),      # Projected Flux Y

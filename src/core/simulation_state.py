@@ -74,5 +74,5 @@ class SimulationState:
         self.rhs.zero_()
 
     def numpy(self):
-        """Returns the current state Q as a numpy array."""
+        """Returns the current state q as a numpy array."""
         return self.q.numpy()

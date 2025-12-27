@@ -19,7 +19,7 @@ class TimeIntegrator:
         Initializes the TimeIntegrator.
 
         Args:
-            solver (BaseSolver): An initialized solver instance containing the state Q and rhs buffer.
+            solver (BaseSolver): An initialized solver instance containing the state q and rhs buffer.
             stepper (TimeStepper): A time-stepper instance (e.g., RK4Stepper).
         """
         self.solver = solver
@@ -65,7 +65,7 @@ class TimeIntegrator:
             stream = wp.Stream(device=self.device)
             
         # Direct references to solver's main state arrays for clarity
-        Q = state.q
+        q = state.q
         
         print(f"Starting simulation: t_final={t_final}, CFL={CFL}, write_interval={write_interval}, min_dt={min_dt:.1e}")
 
@@ -107,7 +107,7 @@ class TimeIntegrator:
                 print(f"Step: {step}, t = {t:.4f} / {t_final}, dt = {dt:.3e}")
                 
                 # Check for NaNs to detect instability early
-                q_np = Q.numpy()
+                q_np = q.numpy()
                 if np.isnan(q_np).any():
                     raise RuntimeError(f"Simulation became unstable: NaN values detected at step {step} (t={t:.4f})")
                 

@@ -97,8 +97,8 @@ class NavierStokes2DSolver(BaseSolver):
         else:
             self.bc_data = None
 
-        weights_2d = np.kron(self.basis.weights_1d.numpy(), self.basis.weights_1d.numpy())
-        self.weights_2d = wp.array(weights_2d, dtype=self.dtype_warp, device=self.device)
+        weights_2d_host = np.kron(self.basis.weights_1d.numpy(), self.basis.weights_1d.numpy())
+        self.weights_2d = wp.array(weights_2d_host, dtype=self.dtype_warp, device=self.device)
         self.max_wave_speed = wp.zeros(1, dtype=self.dtype_warp, device=self.device)
         self.ramp_time = self.dtype_warp(config.simulation.ramp_time)
         
@@ -113,6 +113,9 @@ class NavierStokes2DSolver(BaseSolver):
             self.basis.compute_filter_matrix(config.numerics.filter_alpha, config.numerics.filter_order)
             
     def initialize(self, initial_condition_func):
+        """
+        Initializes the state vector q using the provided initial condition function and configuration.
+        """
         shape = (self.mesh.num_elements, self.basis.Np)
         self.state = SimulationState(
             shape, 
@@ -121,12 +124,12 @@ class NavierStokes2DSolver(BaseSolver):
             use_filtering=self.cfg.numerics.use_filtering,
             basis=self.basis
         )
-        Q_host = np.zeros((self.mesh.num_elements, self.basis.Np, 4), dtype=self.dtype_np)
+        q_host = np.zeros((self.mesh.num_elements, self.basis.Np, 4), dtype=self.dtype_np)
         ic_params = {}
         if not isinstance(self.cfg.initial_condition, str):
             ic_params = self.cfg.initial_condition.params
-        self._set_initial_conditions(Q_host, initial_condition_func, ic_params)
-        self.state.q = wp.array(Q_host, dtype=self.dtype_vec4, device=self.device)
+        self._set_initial_conditions(q_host, initial_condition_func, ic_params)
+        self.state.q = wp.array(q_host, dtype=self.dtype_vec4, device=self.device)
 
     def compute_rhs(self, t, dt, q, rhs):
         rhs.zero_()
@@ -210,8 +213,8 @@ class NavierStokes2DSolver(BaseSolver):
         if self.cfg.numerics.flux_type == FluxType.HLLC:
             flux_type_id = ek.FLUX_HLLC
         wp.launch(
-            kernel=ek.compute_surface_term,
-            dim=self.mesh.num_elements,
+            kernel=ek.accumulate_interface_fluxes,
+            dim=(self.mesh.num_elements, 4, self.basis.Nfp),
             inputs=[q, self.state.f_x_n, self.state.f_y_n, rhs, self.mesh.connectivity, self.mesh.connectivity_face_indices, self.basis.face_nodes, self.basis.LIFT,
                     self.mesh.face_geo_factors, self.mesh.J, self.bc_mask, self.bc_data,
                     self.mesh.x, self.mesh.y, self.basis.Nfp, t_val, self.ramp_time, flux_type_id, self.params],
@@ -256,11 +259,11 @@ class NavierStokes2DSolver(BaseSolver):
         dt = CFL * h_eff / total_speed
         return dt
 
-    def _set_initial_conditions(self, Q_host, func, params):
+    def _set_initial_conditions(self, q_host, func, params):
         for i in range(self.mesh.num_elements):
             for j in range(self.basis.Np):
                 rho, u, v, p = func(self.mesh.x_host[i, j], self.mesh.y_host[i, j], **params)
-                Q_host[i, j, :] = eq.primitive_to_conservative([rho, u, v, p])
+                q_host[i, j, :] = eq.primitive_to_conservative([rho, u, v, p])
 
     def post_step(self):
         if self.cfg.numerics.use_filtering:

@@ -3,19 +3,19 @@ import numpy as np
 # Gas constant
 gamma = 1.4
 
-def pressure(Q):
+def pressure(q):
     """
     Computes the pressure from the conservative state vector using the ideal gas law.
     
     Equation of state: p = (gamma - 1) * (E - 0.5 * rho * (u^2 + v^2))
 
     Args:
-        Q (np.array): Conservative variables [rho, rho*u, rho*v, E].
+        q (np.array): Conservative variables [rho, rho*u, rho*v, E].
 
     Returns:
         np.array: The pressure.
     """
-    rho, rho_u, rho_v, E = Q
+    rho, rho_u, rho_v, E = q
     # Soft clip to avoid division by zero (better than hard clip for optimization, but fine here)
     rho = np.maximum(rho, 1e-12)
     
@@ -27,22 +27,22 @@ def pressure(Q):
     
     return np.maximum(p_val, 1e-12)
 
-def euler_fluxes(Q):
+def euler_fluxes(q):
     """
-    Computes both Euler Flux vectors F(Q) and G(Q) simultaneously.
+    Computes both Euler Flux vectors F(q) and G(q) simultaneously.
     
-    F(Q) = [rho*u, rho*u^2 + p, rho*u*v, (E+p)*u]
-    G(Q) = [rho*v, rho*v*u, rho*v^2 + p, (E+p)*v]
+    F(q) = [rho*u, rho*u^2 + p, rho*u*v, (E+p)*u]
+    G(q) = [rho*v, rho*v*u, rho*v^2 + p, (E+p)*v]
 
     Args:
-        Q (np.array): Conservative variables.
+        q (np.array): Conservative variables.
 
     Returns:
         tuple: (F, G) numpy arrays containing the fluxes in x and y directions.
     """
-    rho, rho_u, rho_v, E = Q
+    rho, rho_u, rho_v, E = q
     rho = np.maximum(rho, 1e-12)
-    p = pressure(Q)
+    p = pressure(q)
     
     # Inverse density
     inv_rho = 1.0 / rho
@@ -65,23 +65,23 @@ def euler_fluxes(Q):
     G = np.array([g1, g2, g3, g4])
     return F, G
 
-def get_max_eigenvalue(Q, normal_vector):
+def get_max_eigenvalue(q, normal_vector):
     """
     Computes the maximum eigenvalue (wave speed) of the system in a given normal direction.
     
     lambda_max = |u_n| + c
 
     Args:
-        Q (np.array): Conservative variables.
+        q (np.array): Conservative variables.
         normal_vector (tuple): (nx, ny) components of the normal vector.
 
     Returns:
         np.array: The maximum wave speed.
     """
-    rho = Q[0]
+    rho = q[0]
     # Avoid division by near-zero
     rho = np.maximum(rho, 1e-12)
-    p = pressure(Q)
+    p = pressure(q)
     
     # Sound speed
     c = np.sqrt(gamma * p / rho)
@@ -89,7 +89,7 @@ def get_max_eigenvalue(Q, normal_vector):
     nx, ny = normal_vector
     # Velocity projected on normal
     # u_n = (rho_u * nx + rho_v * ny) / rho
-    u_n = (Q[1] * nx + Q[2] * ny) / rho
+    u_n = (q[1] * nx + q[2] * ny) / rho
     
     return np.abs(u_n) + c
 
@@ -304,24 +304,24 @@ def primitive_to_conservative(prim):
     E = p / (gamma - 1) + kinetic_energy
     return np.array([rho, rho_u, rho_v, E])
 
-def conservative_to_primitive(Q):
+def conservative_to_primitive(q):
     """
     Converts conservative variables [rho, rho*u, rho*v, E] back to primitive [rho, u, v, p].
     Used for visualization and post-processing.
 
     Args:
-        Q (np.array): Conservative variables.
+        q (np.array): Conservative variables.
 
     Returns:
         np.array: Primitive variables.
     """
-    rho, rho_u, rho_v, E = Q
+    rho, rho_u, rho_v, E = q
     
     # Avoid division by zero
     rho_safe = np.maximum(rho, 1e-12)
     
     u = rho_u / rho_safe
     v = rho_v / rho_safe
-    p_val = pressure(Q) # Uses the existing pressure function
+    p_val = pressure(q) # Uses the existing pressure function
     
     return np.array([rho, u, v, p_val])

@@ -111,7 +111,7 @@ class HDF5Writer:
             # Create Data Group for time steps
             f.create_group("data")
 
-    def write_step(self, step, time, Q):
+    def write_step(self, step, time, q):
         """
         Writes a single simulation time step to the HDF5 file.
         """
@@ -122,9 +122,9 @@ class HDF5Writer:
             
             if self.use_high_order:
                 # --- Write Nodal Data (Point Data) ---
-                # Q: (NumElements, Np, 4) -> (NumElements * Np, 4)
+                # q: (NumElements, Np, 4) -> (NumElements * Np, 4)
                 # Convert to Primitive
-                q_flat = Q.reshape(-1, 4).T # (4, TotalPoints)
+                q_flat = q.reshape(-1, 4).T # (4, TotalPoints)
                 prim = conservative_to_primitive(q_flat)
                 
                 grp.create_dataset("rho", data=prim[0])
@@ -134,9 +134,9 @@ class HDF5Writer:
                 
             else:
                 # --- Write Cell Average Data (Cell Data) ---
-                q_reshaped = Q.transpose(2, 0, 1).reshape(4, -1)
+                q_reshaped = q.transpose(2, 0, 1).reshape(4, -1)
                 prim_reshaped = conservative_to_primitive(q_reshaped)
-                prim = prim_reshaped.reshape(4, Q.shape[0], Q.shape[1])
+                prim = prim_reshaped.reshape(4, q.shape[0], q.shape[1])
                 avgs = np.mean(prim, axis=2)
                 
                 grp.create_dataset("rho", data=avgs[0])
