@@ -1,0 +1,39 @@
+boundaries:
+  Bottom:
+    type: periodic
+  Left:
+    linked_to: Right
+    type: periodic
+  Right:
+    type: periodic
+  Top:
+    linked_to: Bottom
+    type: periodic
+case_name: vortex_verification
+initial_condition:
+  name: vortex
+  params:
+    beta: 5.0
+    u_inf: 1.0
+    v_inf: 1.0
+    xc: 5.0
+    yc: 5.0
+io:
+  output_dir: /home/dzilles/Documents/Softwareprojekte/pazuzu/tests/verification/vortex_2D_convergence/output/run_P1_N40
+  write_interval: 10000
+mesh_file: /home/dzilles/Documents/Softwareprojekte/pazuzu/tests/verification/vortex_2D_convergence/output/box_40.msh
+numerics:
+  cfl: 0.1
+  flux_type: hllc
+  limiter: none
+  min_dt: 1.0e-12
+  over_integration_order: 0
+  polynomial_order: 1
+  precision: double
+physics:
+  gamma: 1.4
+  gas_constant: 287.0
+simulation:
+  device: cpu
+  max_steps: 100000
+  t_final: 1.0

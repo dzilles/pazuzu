@@ -102,7 +102,12 @@ def main(config_path):
     # --- Basis Setup ---
     dtype_warp = wp.float64 if cfg.numerics.precision == "double" else wp.float32
     print(f"Initializing Basis (Poly Degree N={cfg.numerics.polynomial_order}, Precision={cfg.numerics.precision})...")
-    basis = Basis(polynomial_degree=cfg.numerics.polynomial_order, device=device, dtype=dtype_warp)
+    basis = Basis(
+        cfg.numerics.polynomial_order, 
+        device=cfg.simulation.device, 
+        dtype=dtype_warp,
+        over_integration_order=cfg.numerics.over_integration_order
+    )
 
     # --- Solver Setup ---
     ic_cfg = cfg.initial_condition

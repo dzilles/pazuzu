@@ -40,7 +40,14 @@ def kernel_rusanov_flux(
     params: Any
 ):
     tid = wp.tid()
-    flux_out[tid] = euler_kernels.rusanov_flux(q_l[tid], q_r[tid], nx, ny, params)
+    ql = q_l[tid]
+    qr = q_r[tid]
+    
+    # Compute normal fluxes needed for the new rusanov_flux signature
+    fln = euler_kernels.flux_x(ql, params) * nx + euler_kernels.flux_y(ql, params) * ny
+    frn = euler_kernels.flux_x(qr, params) * nx + euler_kernels.flux_y(qr, params) * ny
+    
+    flux_out[tid] = euler_kernels.rusanov_flux(ql, qr, fln, frn, nx, ny, params)
 
 class TestEulerKernels(unittest.TestCase):
     @classmethod

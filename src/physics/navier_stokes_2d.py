@@ -118,7 +118,8 @@ class NavierStokes2DSolver(BaseSolver):
             shape, 
             self.dtype_vec4, 
             self.device, 
-            use_filtering=self.cfg.numerics.use_filtering
+            use_filtering=self.cfg.numerics.use_filtering,
+            basis=self.basis
         )
         Q_host = np.zeros((self.mesh.num_elements, self.basis.Np, 4), dtype=self.dtype_np)
         ic_params = {}
@@ -155,19 +156,63 @@ class NavierStokes2DSolver(BaseSolver):
         )
         
         # --- PASS 2: Inviscid RHS ---
-        wp.launch(
-            kernel=ek.compute_volume_term,
-            dim=(self.mesh.num_elements, self.basis.Np),
-            inputs=[q, rhs, self.basis.Dr, self.basis.Ds, self.mesh.rx, self.mesh.ry, self.mesh.sx, self.mesh.sy, self.basis.Np, self.params],
-            device=self.device
-        )
+        if hasattr(self.basis, 'Nq') and self.basis.Nq > 0:
+            # Over-integration (Quadrature Projection)
+            wp.launch(
+                kernel=ek.interpolate_to_quadrature,
+                dim=(self.mesh.num_elements, self.basis.Nq),
+                inputs=[q, self.state.q_q, self.basis.Interp_q, self.basis.Np],
+                device=self.device
+            )
+            wp.launch(
+                kernel=ek.compute_projected_fluxes,
+                dim=(self.mesh.num_elements, self.basis.Np),
+                inputs=[self.state.q_q, self.state.f_x_n, self.state.f_y_n, self.basis.Proj_q, self.basis.Nq, self.params],
+                device=self.device
+            )
+            wp.launch(
+                kernel=ek.compute_volume_term,
+                dim=(self.mesh.num_elements, self.basis.Np),
+                inputs=[
+                    self.state.f_x_n, self.state.f_y_n,
+                    rhs,
+                    self.basis.Dr, self.basis.Ds,
+                    self.mesh.rx, self.mesh.ry,
+                    self.mesh.sx, self.mesh.sy,
+                    self.basis.Np,
+                    self.params
+                ],
+                device=self.device
+            )
+        else:
+            # Standard Collocation
+            wp.launch(
+                kernel=ek.compute_nodal_fluxes,
+                dim=(self.mesh.num_elements, self.basis.Np),
+                inputs=[q, self.state.f_x_n, self.state.f_y_n, self.params],
+                device=self.device
+            )
+            wp.launch(
+                kernel=ek.compute_volume_term,
+                dim=(self.mesh.num_elements, self.basis.Np),
+                inputs=[
+                    self.state.f_x_n, self.state.f_y_n,
+                    rhs,
+                    self.basis.Dr, self.basis.Ds,
+                    self.mesh.rx, self.mesh.ry,
+                    self.mesh.sx, self.mesh.sy,
+                    self.basis.Np,
+                    self.params
+                ],
+                device=self.device
+            )
         flux_type_id = ek.FLUX_RUSANOV
         if self.cfg.numerics.flux_type == FluxType.HLLC:
             flux_type_id = ek.FLUX_HLLC
         wp.launch(
             kernel=ek.compute_surface_term,
             dim=self.mesh.num_elements,
-            inputs=[q, rhs, self.mesh.connectivity, self.mesh.connectivity_face_indices, self.basis.face_nodes, self.basis.LIFT,
+            inputs=[q, self.state.f_x_n, self.state.f_y_n, rhs, self.mesh.connectivity, self.mesh.connectivity_face_indices, self.basis.face_nodes, self.basis.LIFT,
                     self.mesh.face_geo_factors, self.mesh.J, self.bc_mask, self.bc_data,
                     self.mesh.x, self.mesh.y, self.basis.Nfp, t_val, self.ramp_time, flux_type_id, self.params],
             device=self.device

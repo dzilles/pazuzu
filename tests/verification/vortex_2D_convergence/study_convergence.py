@@ -8,15 +8,18 @@ import yaml
 import argparse
 from scipy import stats
 
-# Add local directory to path
+# Add local directory and original vortex directory to path
 test_dir = os.path.dirname(os.path.abspath(__file__))
+vortex_dir = os.path.abspath(os.path.join(test_dir, "../vortex_2D"))
 sys.path.append(test_dir)
+sys.path.append(vortex_dir)
 
-# Import analytical solution from verify.py
+# Import analytical solution from verify.py in vortex_2D
 try:
     from verify import periodic_vortex
 except ImportError:
-    def periodic_vortex(x, y, t=0.0, Lx=20.0, Ly=20.0):
+    def periodic_vortex(x, y, t=0.0, Lx=10.0, Ly=10.0):
+        # ... (Same fallback as before)
         gamma = 1.4
         beta = 5.0  # Vortex strength
         u_inf = 1.0
@@ -40,7 +43,7 @@ except ImportError:
         return rho, u, v, p
 
 def run_study():
-    resolutions = [20, 32, 44, 56]
+    resolutions = [40, 60, 80, 100]
     orders = [1, 2, 3]
     
     all_results = {}
@@ -56,7 +59,7 @@ def run_study():
         base_config = yaml.safe_load(f)
 
     # Use a shorter t_final for faster convergence study
-    t_final = 0.5 
+    t_final = 1.0 
     base_config['simulation']['t_final'] = t_final
     base_config['io']['write_interval'] = 10000 # Only write final state
     
@@ -88,6 +91,7 @@ def run_study():
             
             config['mesh_file'] = mesh_file
             config['numerics']['polynomial_order'] = P
+            config['numerics']['over_integration_order'] = 0
             config['io']['output_dir'] = run_output_dir
             
             temp_config_path = os.path.join(test_dir, f"vortex_P{P}_N{N}.yaml")
@@ -122,9 +126,19 @@ def run_study():
                 # Discrete L2 norm
                 l2_error = np.sqrt(np.mean(diff**2))
                 
-                print(f"L2 Error: {l2_error:.6e}")
                 errors.append(l2_error)
-                h_values.append(Lx / N)
+                h_val = Lx / N
+                h_values.append(h_val)
+
+                # --- Print Error Comparison ---
+                expected_l2 = 0.0
+                if len(errors) == 1:
+                    print(f"L2 Error: {l2_error:.6e} (Baseline)")
+                else:
+                    # Expected = Baseline_Error * (h / Baseline_h)^(P+1)
+                    expected_l2 = errors[0] * (h_val / h_values[0])**(P+1)
+                    ratio = l2_error / expected_l2
+                    print(f"L2 Error: {l2_error:.6e} | Expected: {expected_l2:.6e} | Actual/Expected: {ratio:.2f}")
         
         all_results[P] = {
             'h': np.array(h_values),

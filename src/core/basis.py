@@ -26,7 +26,7 @@ class Basis:
         LIFT (wp.array): Lift operator matrix for flux reconstruction.
         min_node_dist (float): Minimum distance between 1D nodes (used for CFL condition).
     """
-    def __init__(self, polynomial_degree, device="cuda", dtype=wp.float32):
+    def __init__(self, polynomial_degree, device="cuda", dtype=wp.float32, over_integration_order=0):
         """
         Initializes the DG Basis.
 
@@ -34,6 +34,7 @@ class Basis:
             polynomial_degree (int): The order of the polynomial basis (N).
             device (str, optional): The Warp device to allocate arrays on. Defaults to "cuda".
             dtype (wp.dtype, optional): Floating point precision. Defaults to wp.float32.
+            over_integration_order (int, optional): The number of quadrature points in 1D for over-integration. 0 to disable.
         """
         self.N = polynomial_degree
         self.N1 = self.N + 1
@@ -78,12 +79,84 @@ class Basis:
         self.Dr = wp.array(Dr, dtype=dtype, device=device)
         self.Ds = wp.array(Ds, dtype=dtype, device=device)
         self.LIFT = wp.array(LIFT, dtype=dtype, device=device)
+
+        # --- Over-Integration Setup (for non-linear volume terms) ---
+        # Increase quadrature degree to integrate non-linear fluxes more accurately.
+        if over_integration_order > 0:
+            self.Nq_1d = over_integration_order
+            nodes_q_1d, weights_q_1d = self._gauss_quadrature(self.Nq_1d)
+            self.Nq = self.Nq_1d * self.Nq_1d
+            
+            # Interpolation Matrix from GLL nodes to Quadrature nodes (1D)
+            Interp_q_1d = self._interpolation_matrix_1d(nodes_1d, nodes_q_1d)
+            Interp_q = np.kron(Interp_q_1d, Interp_q_1d)
+            
+            # Differentiation Matrix on Quadrature nodes
+            D_q_1d = self._differentiation_matrix_interpolated_1d(nodes_1d, nodes_q_1d)
+            Dr_q = np.kron(np.eye(self.Nq_1d), D_q_1d)
+            Ds_q = np.kron(D_q_1d, np.eye(self.Nq_1d))
+            
+            # Projection Matrix (weighted interpolation back to GLL nodes)
+            weights_q_2d = np.kron(weights_q_1d, weights_q_1d)
+            Proj_q = inv_mass_matrix_diag[:, None] * (Interp_q.T * weights_q_2d[None, :])
+
+            # Over-integration arrays (transfer to device)
+            self.nodes_q_1d = wp.array(nodes_q_1d, dtype=dtype, device=device)
+            self.weights_q_1d = wp.array(weights_q_1d, dtype=dtype, device=device)
+            self.Interp_q = wp.array(Interp_q, dtype=dtype, device=device)
+            self.Proj_q = wp.array(Proj_q, dtype=dtype, device=device)
+            self.Dr_q = wp.array(Dr_q, dtype=dtype, device=device)
+            self.Ds_q = wp.array(Ds_q, dtype=dtype, device=device)
+            self.weights_q_2d = wp.array(weights_q_2d, dtype=dtype, device=device)
+        else:
+            self.Nq = 0
         
         # Useful for CFL condition estimation
         self.min_node_dist = np.min(np.diff(nodes_1d))
         
         # Filter Matrix (lazy initialization)
         self.filter_matrix = None
+
+    def _gauss_quadrature(self, Nq):
+        """ Computes Legendre-Gauss nodes and weights (Nq points). """
+        from scipy.special import roots_legendre
+        nodes, weights = roots_legendre(Nq)
+        return nodes, weights
+
+    def _interpolation_matrix_1d(self, nodes_from, nodes_to):
+        """ Computes 1D Lagrange interpolation matrix from nodes_from to nodes_to. """
+        ni = len(nodes_to)
+        nj = len(nodes_from)
+        Interp = np.zeros((ni, nj))
+        for i in range(ni):
+            for j in range(nj):
+                # Compute L_j(nodes_to[i])
+                val = 1.0
+                for k in range(nj):
+                    if j != k:
+                        val *= (nodes_to[i] - nodes_from[k]) / (nodes_from[j] - nodes_from[k])
+                Interp[i, j] = val
+        return Interp
+
+    def _differentiation_matrix_interpolated_1d(self, nodes_from, nodes_to):
+        """ Computes 1D Lagrange differentiation matrix: D[i, j] = dL_j/dx (nodes_to[i]). """
+        ni = len(nodes_to)
+        nj = len(nodes_from)
+        D = np.zeros((ni, nj))
+        for i in range(ni):
+            for j in range(nj):
+                # Compute derivative of L_j at nodes_to[i]
+                sum_val = 0.0
+                for k in range(nj):
+                    if j != k:
+                        # Product rule for derivative of product( (x - x_m)/(x_j - x_m) )
+                        prod = 1.0 / (nodes_from[j] - nodes_from[k])
+                        for m in range(nj):
+                            if m != j and m != k:
+                                prod *= (nodes_to[i] - nodes_from[m]) / (nodes_from[j] - nodes_from[m])
+                        sum_val += prod
+                D[i, j] = sum_val
+        return D
 
     def compute_filter_matrix(self, alpha, order):
         """

@@ -119,6 +119,15 @@ class Mesh:
         self.face_geo_factors = None
         self.x = None
         self.y = None
+        
+        # Over-integration metrics
+        self.rx_q = None
+        self.ry_q = None
+        self.sx_q = None
+        self.sy_q = None
+        self.J_q = None
+        self.x_q = None
+        self.y_q = None
 
     def compute_geometry(self, basis, dtype_warp=wp.float32, dtype_np=np.float32):
         """
@@ -138,14 +147,7 @@ class Mesh:
         r = nodes_2d[:, 0]
         s = nodes_2d[:, 1]
         
-        # Derivatives of bilinear shape functions w.r.t r and s at all Np nodes
-        # Shape functions:
-        # N0 = 0.25(1-r)(1-s)
-        # N1 = 0.25(1+r)(1-s)
-        # N2 = 0.25(1+r)(1+s)
-        # N3 = 0.25(1-r)(1+s)
-        
-        # Precompute shape function derivatives at all nodes
+        # 1. Precompute shape function derivatives at all basis nodes (Collocation)
         # Shape: (Np, 4)
         dN_dr = np.zeros((basis.Np, 4))
         dN_ds = np.zeros((basis.Np, 4))
@@ -156,14 +158,45 @@ class Mesh:
         dN_ds[:, 0] = -0.25 * (1 - r); dN_ds[:, 1] = -0.25 * (1 + r)
         dN_ds[:, 2] =  0.25 * (1 + r); dN_ds[:, 3] =  0.25 * (1 - r)
 
+        # 2. Precompute shape functions for mapping nodes (bilinear interpolation)
+        N1 = 0.25*(1-r)*(1-s); N2 = 0.25*(1+r)*(1-s); N3 = 0.25*(1+r)*(1+s); N4 = 0.25*(1-r)*(1+s)
+        N_shape = np.vstack([N1, N2, N3, N4]) # (4, Np)
+
+        # 3. Setup for Over-Integration (if applicable)
+        has_quad = hasattr(basis, 'Nq') and basis.Nq > 0
+        if has_quad:
+            # LG nodes in 1D
+            nq1d = int(np.sqrt(basis.Nq))
+            nodes_q_1d = basis.nodes_q_1d.numpy()
+            rq_1d, sq_1d = np.meshgrid(nodes_q_1d, nodes_q_1d)
+            rq = rq_1d.flatten()
+            sq = sq_1d.flatten()
+            
+            # Shape functions and derivatives at quadrature nodes
+            Nq_shape = np.vstack([
+                0.25*(1-rq)*(1-sq), 0.25*(1+rq)*(1-sq), 
+                0.25*(1+rq)*(1+sq), 0.25*(1-rq)*(1+sq)
+            ])
+            dNq_dr = np.vstack([
+                -0.25*(1-sq), 0.25*(1-sq), 0.25*(1+sq), -0.25*(1+sq)
+            ]).T # (Nq, 4)
+            dNq_ds = np.vstack([
+                -0.25*(1-rq), -0.25*(1+rq), 0.25*(1+rq), 0.25*(1-rq)
+            ]).T # (Nq, 4)
+            
+            # Allocate Host arrays for quadrature metrics
+            self.rx_q_host = np.zeros((self.num_elements, basis.Nq), dtype=dtype_np)
+            self.ry_q_host = np.zeros((self.num_elements, basis.Nq), dtype=dtype_np)
+            self.sx_q_host = np.zeros((self.num_elements, basis.Nq), dtype=dtype_np)
+            self.sy_q_host = np.zeros((self.num_elements, basis.Nq), dtype=dtype_np)
+            self.J_q_host  = np.zeros((self.num_elements, basis.Nq), dtype=dtype_np)
+            self.x_q_host = np.zeros((self.num_elements, basis.Nq), dtype=dtype_np)
+            self.y_q_host = np.zeros((self.num_elements, basis.Nq), dtype=dtype_np)
+
         # Derivatives for face normals (constant per face for bilinear elements)
-        # Face 0 (Bottom, s=-1): dN/dr at r=0, s=-1 -> [-0.5, 0.5, 0.0, 0.0]
         dNd_r_f0 = np.array([-0.5, 0.5, 0.0, 0.0])
-        # Face 1 (Right, r=1): dN/ds at r=1, s=0 -> [0.0, -0.5, 0.5, 0.0]
         dNd_s_f1 = np.array([0.0, -0.5, 0.5, 0.0])
-        # Face 2 (Top, s=1): dN/dr at r=0, s=1 -> [0.0, 0.0, 0.5, -0.5]
         dNd_r_f2 = np.array([0.0, 0.0, 0.5, -0.5])
-        # Face 3 (Left, r=-1): dN/ds at r=-1, s=0 -> [-0.5, 0.0, 0.0, 0.5]
         dNd_s_f3 = np.array([-0.5, 0.0, 0.0, 0.5])
         
         # Allocate/Reset Mesh Metric Arrays (Host)
@@ -178,67 +211,50 @@ class Mesh:
         self.x_host = np.zeros((self.num_elements, basis.Np), dtype=dtype_np)
         self.y_host = np.zeros((self.num_elements, basis.Np), dtype=dtype_np)
 
-        # Shape functions for mapping nodes (bilinear interpolation)
-        N1 = 0.25*(1-r)*(1-s); N2 = 0.25*(1+r)*(1-s); N3 = 0.25*(1+r)*(1+s); N4 = 0.25*(1-r)*(1+s)
-        N_shape = np.vstack([N1, N2, N3, N4]) # (4, Np)
-
         for i in range(self.num_elements):
             v = self.vertices_host[i, :, :] 
             
-            # --- 1. Map Reference Nodes to Physical Space ---
+            # --- 1. Map Basis Reference Nodes to Physical Space ---
             self.x_host[i, :] = N_shape.T @ v[:, 0]
             self.y_host[i, :] = N_shape.T @ v[:, 1]
             
-            # --- 2. Compute Volume Jacobians ---
-            # x = sum(N_k * x_k) -> dx/dr = sum(dN_k/dr * x_k)
-            dx_dr = dN_dr @ v[:, 0]
-            dx_ds = dN_ds @ v[:, 0]
-            dy_dr = dN_dr @ v[:, 1]
-            dy_ds = dN_ds @ v[:, 1]
-            
-            # Jacobian Determinant J = dx/dr * dy/ds - dx/ds * dy/dr
+            # --- 2. Compute Volume Jacobians at Basis Nodes ---
+            dx_dr = dN_dr @ v[:, 0]; dx_ds = dN_ds @ v[:, 0]
+            dy_dr = dN_dr @ v[:, 1]; dy_ds = dN_ds @ v[:, 1]
             J = dx_dr * dy_ds - dx_ds * dy_dr
             self.J_host[i, :] = J
+            self.rx_host[i, :] =  dy_ds / J; self.ry_host[i, :] = -dx_ds / J
+            self.sx_host[i, :] = -dy_dr / J; self.sy_host[i, :] =  dx_dr / J
             
-            # Inverse Jacobian components
-            # dr/dx =  dy/ds / J
-            # dr/dy = -dx/ds / J
-            # ds/dx = -dy/dr / J
-            # ds/dy =  dx/dr / J
-            
-            self.rx_host[i, :] =  dy_ds / J
-            self.ry_host[i, :] = -dx_ds / J
-            self.sx_host[i, :] = -dy_dr / J
-            self.sy_host[i, :] =  dx_dr / J
-            
-            # --- 3. Compute Face Normals and Surface Jacobians ---
-            # Normals are outward pointing.
-            # For bilinear quads with straight edges, these are constant per face.
-            
+            # --- 3. Compute Metrics at Quadrature Nodes ---
+            if has_quad:
+                self.x_q_host[i, :] = Nq_shape.T @ v[:, 0]
+                self.y_q_host[i, :] = Nq_shape.T @ v[:, 1]
+                dxq_dr = dNq_dr @ v[:, 0]; dxq_ds = dNq_ds @ v[:, 0]
+                dyq_dr = dNq_dr @ v[:, 1]; dyq_ds = dNq_ds @ v[:, 1]
+                Jq = dxq_dr * dyq_ds - dxq_ds * dyq_dr
+                self.J_q_host[i, :] = Jq
+                self.rx_q_host[i, :] =  dyq_ds / Jq; self.ry_q_host[i, :] = -dxq_ds / Jq
+                self.sx_q_host[i, :] = -dyq_dr / Jq; self.sy_q_host[i, :] =  dxq_dr / Jq
+
+            # --- 4. Compute Face Normals and Surface Jacobians ---
             # Face 0 (bottom)
-            dx_dr_0 = dNd_r_f0 @ v[:, 0]
-            dy_dr_0 = dNd_r_f0 @ v[:, 1]
+            dx_dr_0 = dNd_r_f0 @ v[:, 0]; dy_dr_0 = dNd_r_f0 @ v[:, 1]
             nx, ny = dy_dr_0, -dx_dr_0
             J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 0, :] = [nx/J_face, ny/J_face, J_face]
-
             # Face 1 (right)
-            dx_ds_1 = dNd_s_f1 @ v[:, 0]
-            dy_ds_1 = dNd_s_f1 @ v[:, 1]
+            dx_ds_1 = dNd_s_f1 @ v[:, 0]; dy_ds_1 = dNd_s_f1 @ v[:, 1]
             nx, ny = dy_ds_1, -dx_ds_1
             J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 1, :] = [nx/J_face, ny/J_face, J_face]
-            
             # Face 2 (top)
-            dx_dr_2 = dNd_r_f2 @ v[:, 0]
-            dy_dr_2 = dNd_r_f2 @ v[:, 1]
+            dx_dr_2 = dNd_r_f2 @ v[:, 0]; dy_dr_2 = dNd_r_f2 @ v[:, 1]
             nx, ny = -dy_dr_2, dx_dr_2 
             J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 2, :] = [nx/J_face, ny/J_face, J_face]
-
             # Face 3 (left)
-            dx_ds_3 = dNd_s_f3 @ v[:, 0]
-            dy_ds_3 = dNd_s_f3 @ v[:, 1]
+            dx_ds_3 = dNd_s_f3 @ v[:, 0]; dy_ds_3 = dNd_s_f3 @ v[:, 1]
             nx, ny = -dy_ds_3, dx_ds_3 
             J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 3, :] = [nx/J_face, ny/J_face, J_face]
@@ -252,6 +268,15 @@ class Mesh:
         self.face_geo_factors = wp.array(self.face_geo_factors_host, dtype=dtype_warp, device=self.device)
         self.x = wp.array(self.x_host, dtype=dtype_warp, device=self.device)
         self.y = wp.array(self.y_host, dtype=dtype_warp, device=self.device)
+        
+        if has_quad:
+            self.rx_q = wp.array(self.rx_q_host, dtype=dtype_warp, device=self.device)
+            self.ry_q = wp.array(self.ry_q_host, dtype=dtype_warp, device=self.device)
+            self.sx_q = wp.array(self.sx_q_host, dtype=dtype_warp, device=self.device)
+            self.sy_q = wp.array(self.sy_q_host, dtype=dtype_warp, device=self.device)
+            self.J_q = wp.array(self.J_q_host, dtype=dtype_warp, device=self.device)
+            self.x_q = wp.array(self.x_q_host, dtype=dtype_warp, device=self.device)
+            self.y_q = wp.array(self.y_q_host, dtype=dtype_warp, device=self.device)
 
     def _create_cartesian_mesh(self):
         """Generates vertices for a structured Cartesian grid."""

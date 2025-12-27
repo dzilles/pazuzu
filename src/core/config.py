@@ -39,6 +39,7 @@ class NumericsConfig(BaseModel):
     use_filtering: bool = Field(default=False, description="Enable exponential filtering against aliasing")
     filter_alpha: float = Field(default=36.0, description="Filter strength (alpha)")
     filter_order: int = Field(default=16, description="Filter order")
+    over_integration_order: int = Field(default=0, ge=0, description="Order of quadrature for over-integration (0 = disabled, otherwise Nq_1d)")
     min_dt: float = Field(default=1e-15, gt=0, description="Minimum allowable time step before aborting")
 
 class IOConfig(BaseModel):

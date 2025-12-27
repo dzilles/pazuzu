@@ -165,7 +165,8 @@ class Euler2DSolver(BaseSolver):
             shape, 
             self.dtype_vec4, 
             self.device, 
-            use_filtering=self.cfg.numerics.use_filtering
+            use_filtering=self.cfg.numerics.use_filtering,
+            basis=self.basis
         )
         
         Q_host = np.zeros((self.mesh.num_elements, self.basis.Np, 4), dtype=self.dtype_np)
@@ -183,43 +184,68 @@ class Euler2DSolver(BaseSolver):
     def compute_rhs(self, t, dt, q, rhs):
         """
         Computes the Right-Hand Side (RHS) of the semi-discrete Euler equations.
-        
-        RHS = -M^(-1) * (VolumeIntegral + SurfaceIntegral)
-        However, in this strong form implementation, we compute:
-        RHS = - (div(F)) + LIFT(F* - F_n)
-        And the inverse mass matrix is applied implicitly or within the LIFT.
-        Actually, the kernels currently compute terms directly. 
-        Volume term: -div(F)
-        Surface term: LIFT * (FluxJump) / J
-        
-        Args:
-            t (float): Current simulation time.
-            dt (float): Current time step.
-            q (wp.array): Input state vector.
-            rhs (wp.array): Output RHS buffer.
         """
         rhs.zero_()
         t_val = self.dtype_warp(t)
         
         # --- Volume Integral ---
-        # Computes -div(F)
-        wp.launch(
-            kernel=wk.compute_volume_term,
-            dim=(self.mesh.num_elements, self.basis.Np),
-            inputs=[
-                q,
-                rhs,
-                self.basis.Dr,
-                self.basis.Ds,
-                self.mesh.rx,
-                self.mesh.ry,
-                self.mesh.sx,
-                self.mesh.sy,
-                self.basis.Np,
-                self.params
-            ],
-            device=self.device
-        )
+        if hasattr(self.basis, 'Nq') and self.basis.Nq > 0:
+            # Over-integration (Quadrature Projection)
+            wp.launch(
+                kernel=wk.interpolate_to_quadrature,
+                dim=(self.mesh.num_elements, self.basis.Nq),
+                inputs=[q, self.state.q_q, self.basis.Interp_q, self.basis.Np],
+                device=self.device
+            )
+            wp.launch(
+                kernel=wk.compute_projected_fluxes,
+                dim=(self.mesh.num_elements, self.basis.Np),
+                inputs=[self.state.q_q, self.state.f_x_n, self.state.f_y_n, self.basis.Proj_q, self.basis.Nq, self.params],
+                device=self.device
+            )
+            wp.launch(
+                kernel=wk.compute_volume_term,
+                dim=(self.mesh.num_elements, self.basis.Np),
+                inputs=[
+                    self.state.f_x_n, self.state.f_y_n,
+                    rhs,
+                    self.basis.Dr, self.basis.Ds,
+                    self.mesh.rx, self.mesh.ry,
+                    self.mesh.sx, self.mesh.sy,
+                    self.basis.Np,
+                    self.params
+                ],
+                device=self.device
+            )
+        else:
+            # Standard Collocation
+            # Note: We need temporary flux buffers. SimulationState allocates them if basis is passed.
+            # If basis.Nq was 0, we might need fallback buffers or just compute inside a combined kernel.
+            # For robustness, we'll ensure f_x_n, f_y_n exist or use a combined kernel.
+            # Since SimulationState now always checks for basis, let's assume they are there if needed.
+            # Actually, let's add them to SimulationState for standard case too if needed, 
+            # or just use a combined kernel to avoid allocation.
+            # To keep it simple, I'll update SimulationState to always have these flux buffers.
+            wp.launch(
+                kernel=wk.compute_nodal_fluxes,
+                dim=(self.mesh.num_elements, self.basis.Np),
+                inputs=[q, self.state.f_x_n, self.state.f_y_n, self.params],
+                device=self.device
+            )
+            wp.launch(
+                kernel=wk.compute_volume_term,
+                dim=(self.mesh.num_elements, self.basis.Np),
+                inputs=[
+                    self.state.f_x_n, self.state.f_y_n,
+                    rhs,
+                    self.basis.Dr, self.basis.Ds,
+                    self.mesh.rx, self.mesh.ry,
+                    self.mesh.sx, self.mesh.sy,
+                    self.basis.Np,
+                    self.params
+                ],
+                device=self.device
+            )
         
         # Determine Flux Type ID
         flux_type_id = wk.FLUX_RUSANOV
@@ -233,6 +259,8 @@ class Euler2DSolver(BaseSolver):
             dim=self.mesh.num_elements,
             inputs=[
                 q,
+                self.state.f_x_n,
+                self.state.f_y_n,
                 rhs,
                 self.mesh.connectivity,
                 self.mesh.connectivity_face_indices,
