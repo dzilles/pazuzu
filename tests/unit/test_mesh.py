@@ -34,15 +34,16 @@ def test_mesh_inversion_detection():
     with pytest.raises(ValueError, match="Mesh contains inverted element at index 0"):
         mesh.compute_geometry(basis)
 
-def test_valid_mesh_computation():
+@pytest.mark.parametrize("N", [1, 2, 4])
+def test_valid_mesh_computation(N):
     """Ensures a valid mesh does not raise errors during geometry computation."""
     device = "cpu"
     
     # Create a simple 2x2 Cartesian mesh using utility
     mesh = create_dummy_mesh(nx=2, ny=2, x_min=0, x_max=1, y_min=0, y_max=1, device=device)
     
-    # Initialize a basis (P=1)
-    basis = Basis(polynomial_degree=1, device=device)
+    # Initialize a basis
+    basis = Basis(polynomial_degree=N, device=device)
     
     # This should succeed
     mesh.compute_geometry(basis)
