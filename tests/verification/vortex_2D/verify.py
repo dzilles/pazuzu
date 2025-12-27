@@ -18,7 +18,7 @@ def run_simulation():
     
     print(f"Generating mesh: {mesh_file}")
     try:
-        subprocess.run([sys.executable, mesh_script], check=True, cwd=test_dir)
+        subprocess.run([sys.executable, mesh_script, "--out", mesh_file], check=True, cwd=test_dir)
     except subprocess.CalledProcessError as e:
         print(f"Mesh generation failed: {e}")
         sys.exit(1)

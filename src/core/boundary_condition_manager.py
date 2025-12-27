@@ -16,6 +16,60 @@ class BoundaryConditionManager:
     def __init__(self, mesh, config):
         self.mesh = mesh
         self.config = config
+
+    @staticmethod
+    def apply_periodic_conditions(mesh, config):
+        """
+        Parses the configuration for periodic boundary conditions and applies them to the mesh.
+        
+        Args:
+            mesh (Mesh): The mesh object to apply conditions to.
+            config (PazuzuConfig): The simulation configuration.
+        """
+        if not config.boundaries:
+            return
+
+        periodic_pairs = []
+        for name, bc_conf in config.boundaries.items():
+            if bc_conf.get("type") == "periodic" and "linked_to" in bc_conf:
+                target = bc_conf["linked_to"]
+                # Optional axis, try to infer if missing
+                axis = bc_conf.get("axis")
+                if axis is None:
+                    # Heuristic: if names contain Left/Right -> x, Top/Bottom -> y
+                    lower_name = name.lower()
+                    lower_target = target.lower()
+                    if ("left" in lower_name or "right" in lower_name) and \
+                       ("left" in lower_target or "right" in lower_target):
+                        axis = "x"
+                    elif ("top" in lower_name or "bottom" in lower_name) and \
+                         ("top" in lower_target or "bottom" in lower_target):
+                        axis = "y"
+                    else:
+                        axis = "x"  # Fallback
+                
+                periodic_pairs.append((name, target, axis))
+
+        if periodic_pairs:
+            for name, target, axis in periodic_pairs:
+                # Helper to resolve tag name to ID
+                def resolve_tag(raw):
+                    if isinstance(raw, int):
+                        return raw
+                    if hasattr(mesh, "physical_groups") and raw in mesh.physical_groups:
+                        return mesh.physical_groups[raw]
+                    try:
+                        return int(raw)
+                    except (ValueError, TypeError):
+                        return -1
+
+                t1 = resolve_tag(name)
+                t2 = resolve_tag(target)
+
+                if t1 == -1 or t2 == -1:
+                    raise ValueError(f"Could not resolve tags for periodic pair: ({name}, {target})")
+                
+                mesh.apply_periodic_condition(t1, t2, axis)
         
     def setup_boundary_conditions(self):
         """

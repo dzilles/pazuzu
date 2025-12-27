@@ -4,30 +4,14 @@ from src.core.solver_builder import SolverBuilder
 from src.numerics.time_steppers import RK4Stepper
 from src.core.driver import TimeIntegrator
 from src.io.data_writer import HDF5Writer
-from src.physics import initial_conditions as ic
+from src.physics.initial_conditions import get_ic_function
+from src.core.boundary_condition_manager import BoundaryConditionManager
 
 import numpy as np
 import warp as wp
 import os
 import argparse
-import yaml
 import sys
-
-def get_initial_condition_func(name):
-    if name == "vortex":
-        return ic.vortex
-    elif name == "uniform":
-        return ic.uniform
-    elif name == "rest":
-        return ic.rest
-    elif name == "sod_shock_tube":
-        return ic.sod_shock_tube
-    elif name == "double_mach_reflection":
-        return ic.double_mach_reflection
-    elif name == "acoustic_pulse":
-        return ic.acoustic_pulse
-    else:
-        raise ValueError(f"Unknown initial condition: {name}")
 
 def main(config_path):
     from src.core.config import PazuzuConfig
@@ -57,47 +41,8 @@ def main(config_path):
     mesh = Mesh(filename=mesh_path, device=device)
 
     # --- Periodic BC Setup ---
-    # We now look into cfg.boundaries for type: "periodic"
-    periodic_pairs = []
-    if cfg.boundaries:
-        for name, bc_conf in cfg.boundaries.items():
-            if bc_conf.get("type") == "periodic" and "linked_to" in bc_conf:
-                target = bc_conf["linked_to"]
-                # Optional axis, try to infer if missing
-                axis = bc_conf.get("axis")
-                if axis is None:
-                    # Heuristic: if names contain Left/Right -> x, Top/Bottom -> y
-                    lower_name = name.lower()
-                    lower_target = target.lower()
-                    if ("left" in lower_name or "right" in lower_name) and ("left" in lower_target or "right" in lower_target):
-                        axis = "x"
-                    elif ("top" in lower_name or "bottom" in lower_name) and ("top" in lower_target or "bottom" in lower_target):
-                        axis = "y"
-                    else:
-                        axis = "x" # Fallback
-                
-                periodic_pairs.append([name, target, axis])
-
-    if periodic_pairs:
-        print(f"Applying {len(periodic_pairs)} Periodic Boundary Conditions...")
-        for pair in periodic_pairs:
-            t1_raw, t2_raw, axis = pair
-            
-            # Helper to resolve tag name to ID
-            def resolve_tag(raw):
-                if isinstance(raw, int): return raw
-                if hasattr(mesh, 'physical_groups') and raw in mesh.physical_groups:
-                    return mesh.physical_groups[raw]
-                try: return int(raw)
-                except: return -1
-            
-            t1 = resolve_tag(t1_raw)
-            t2 = resolve_tag(t2_raw)
-            
-            if t1 == -1 or t2 == -1:
-                raise ValueError(f"Could not resolve tags for periodic pair: {pair}")
-            else:
-                mesh.apply_periodic_condition(t1, t2, axis)
+    print("Applying Periodic Boundary Conditions (if any)...")
+    BoundaryConditionManager.apply_periodic_conditions(mesh, cfg)
 
     # --- Basis Setup ---
     dtype_warp = wp.float64 if cfg.numerics.precision == "double" else wp.float32
@@ -114,7 +59,7 @@ def main(config_path):
     ic_name = ic_cfg if isinstance(ic_cfg, str) else ic_cfg.name
     
     print(f"Initializing Solver with IC: {ic_name}...")
-    ic_func = get_initial_condition_func(ic_name)
+    ic_func = get_ic_function(ic_name)
     
     # Use SolverBuilder to create the solver instance
     builder = SolverBuilder(mesh, basis, config=cfg)

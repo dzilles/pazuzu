@@ -102,25 +102,115 @@ def sod_shock_tube(x, y, t=0.0, **kwargs):
     return rho, u, v, p
 
 def double_mach_reflection(x, y, t=0.0, **kwargs):
+
     """
+
     Woodward & Colella (1984) Double Mach Reflection setup.
+
     """
+
     sin_60 = np.sqrt(3.0) / 2.0
+
     tan_60 = np.sqrt(3.0)
+
     
+
     shock_x = 1.0/6.0 + y / tan_60 + (10.0 / sin_60) * t
+
     
+
     if x < shock_x:
+
         # Post-shock (Left) State
+
         rho = 8.0
+
         u = 8.25 * np.cos(np.radians(30))
+
         v = -8.25 * np.sin(np.radians(30))
+
         p = 116.5
+
     else:
+
         # Pre-shock (Right) State
+
         rho = 1.4
+
         u = 0.0
+
         v = 0.0
+
         p = 1.0
+
         
+
     return rho, u, v, p
+
+
+
+# Initial Condition Registry
+
+_IC_REGISTRY = {
+
+    "vortex": vortex,
+
+    "uniform": uniform,
+
+    "rest": rest,
+
+    "sod_shock_tube": sod_shock_tube,
+
+    "double_mach_reflection": double_mach_reflection,
+
+    "acoustic_pulse": acoustic_pulse
+
+}
+
+
+
+def get_ic_function(name: str):
+
+    """
+
+    Returns the initial condition function corresponding to the given name.
+
+    
+
+    Args:
+
+        name (str): The name of the initial condition.
+
+        
+
+    Returns:
+
+        callable: The initial condition function.
+
+        
+
+    Raises:
+
+        ValueError: If the initial condition name is not recognized.
+
+    """
+
+    if name not in _IC_REGISTRY:
+
+        raise ValueError(
+
+            f"Unknown initial condition: '{name}'. "
+
+            f"Available ICs: {list(_IC_REGISTRY.keys())}"
+
+        )
+
+    return _IC_REGISTRY[name]
+
+
+
+def register_ic(name: str, func: callable):
+
+    """Registers a new initial condition function."""
+
+    _IC_REGISTRY[name] = func
