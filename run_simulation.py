@@ -36,10 +36,10 @@ def main(config_path):
     try:
         cfg = PazuzuConfig.from_yaml(config_path)
     except Exception as e:
-        print(f"❌ Configuration Error:\n{e}")
+        print(f"[Error] Configuration Error:\n{e}")
         sys.exit(1)
 
-    print(f"✅ Configuration '{cfg.case_name}' loaded successfully.")
+    print(f"[Success] Configuration '{cfg.case_name}' loaded successfully.")
     
     # Get the directory of the config file to resolve relative paths
     config_dir = os.path.dirname(os.path.abspath(config_path))

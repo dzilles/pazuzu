@@ -31,7 +31,7 @@ def run_simulation():
         subprocess.run(cmd, cwd=root_dir, check=True, timeout=600)
         print("Simulation finished successfully.")
     except subprocess.TimeoutExpired:
-        print("❌ Simulation timed out after 10 minutes!")
+        print("[Error] Simulation timed out after 10 minutes!")
         sys.exit(1)
     except subprocess.CalledProcessError as e:
         print(f"Simulation failed: {e}")
@@ -88,9 +88,9 @@ def verify():
         # Pass Condition
         threshold = 1.0e-1
         if max_abs_error < threshold:
-            print(f"✅ PASSED: Error is below threshold {threshold}")
+            print(f"[Success] PASSED: Error is below threshold {threshold}")
         else:
-            print(f"❌ FAILED: Error exceeds threshold {threshold}")
+            print(f"[Fail] FAILED: Error exceeds threshold {threshold}")
             
         # --- Visualization ---
         plt.figure(figsize=(8, 6))

@@ -34,7 +34,7 @@ def run_simulation():
         subprocess.run(cmd, cwd=root_dir, check=True, timeout=600)
         print("Simulation finished successfully.")
     except subprocess.TimeoutExpired:
-        print("❌ Simulation timed out after 10 minutes!")
+        print("[Error] Simulation timed out after 10 minutes!")
         sys.exit(1)
     except subprocess.CalledProcessError as e:
         print(f"Simulation failed: {e}")
@@ -201,10 +201,10 @@ def verify():
             plt.close()
 
         if failed:
-            print("\n❌ Verification FAILED: Some errors exceeded thresholds.")
+            print("\n[Fail] Verification FAILED: Some errors exceeded thresholds.")
             sys.exit(1)
         else:
-            print("\n✅ Verification PASSED.")
+            print("\n[Success] Verification PASSED.")
 
 @pytest.mark.slow
 def test_verification():
