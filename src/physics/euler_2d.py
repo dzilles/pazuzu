@@ -58,8 +58,8 @@ class Euler2DSolver(BaseSolver):
             
             self.params = EquationParams64()
             self.params.gamma = config.physics.gamma
-            self.params.rho_floor = 1.0e-5
-            self.params.p_floor = 1.0e-5
+            self.params.rho_floor = config.physics.rho_floor
+            self.params.p_floor = config.physics.p_floor
             self.params.half = 0.5
             self.params.one = 1.0
             self.params.mu = 0.0
@@ -78,8 +78,8 @@ class Euler2DSolver(BaseSolver):
 
             self.params = EquationParams32()
             self.params.gamma = config.physics.gamma
-            self.params.rho_floor = 1.0e-5
-            self.params.p_floor = 1.0e-5
+            self.params.rho_floor = config.physics.rho_floor
+            self.params.p_floor = config.physics.p_floor
             self.params.half = 0.5
             self.params.one = 1.0
             self.params.mu = 0.0

@@ -29,6 +29,8 @@ class PhysicsConfig(BaseModel):
     u_inf: float = Field(default=0.0, description="Freestream x-velocity")
     v_inf: float = Field(default=0.0, description="Freestream y-velocity")
     p_inf: float = Field(default=1.0, description="Freestream pressure")
+    rho_floor: float = Field(default=1.0e-5, description="Minimum allowed density")
+    p_floor: float = Field(default=1.0e-5, description="Minimum allowed pressure")
 
 class NumericsConfig(BaseModel):
     cfl: float = Field(default=0.4, gt=0, description="CFL number (must be > 0)")
