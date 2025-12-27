@@ -1,6 +1,6 @@
 import warp as wp
 from src.kernels import boundary_conditions as bc
-from src.physics.models.navier_stokes_laws import temperature, viscous_flux_x, viscous_flux_y
+from src.physics.laws.navier_stokes import temperature, viscous_flux_x, viscous_flux_y
 from typing import Any
 
 @wp.kernel

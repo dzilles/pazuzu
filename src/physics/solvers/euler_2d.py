@@ -1,12 +1,12 @@
-from .base_solver import BaseSolver
+from .base import BaseSolver
 from src.geometry.mesh import Mesh
 from src.core.basis import Basis
 from src.core.boundary_condition_manager import BoundaryConditionManager
-from src.physics import equations as eq
+from src.physics.laws import common as eq
 from src.kernels import euler_kernels as wk # Renamed import
 from src.kernels import common_kernels as ck
 from src.kernels.structs import EquationParams32, EquationParams64
-from src.core.state import SimulationState
+from src.core.simulation_state import SimulationState
 import numpy as np
 import warp as wp
 from src.core.config import PazuzuConfig, FluxType, LimiterType
@@ -103,40 +103,12 @@ class Euler2DSolver(BaseSolver):
         self.bc_mask_host, bc_data_list = bc_manager.setup_boundary_conditions()
 
         # --- Device-side data (for computation) ---
-        
         self.bc_mask = wp.array(self.bc_mask_host, dtype=wp.int32, device=self.device)
-        
-        # Create and populate BC data array
-        num_bcs = len(bc_data_list)
-        if num_bcs > 0:
-            from src.kernels.structs import BoundaryState32, BoundaryState64
-            from src.kernels import boundary_conditions as bc_module
-            bc_struct_type = BoundaryState64 if config.numerics.precision == "double" else BoundaryState32
-            
-            # Use Warp's internal numpy_dtype to ensure correct alignment/padding
-            bc_data_host = np.zeros(num_bcs, dtype=bc_struct_type.numpy_dtype())
-            
-            for i, data in enumerate(bc_data_list):
-                bc_id = data['type']
-                params = data['params']
-                bc_data_host[i]['type'] = bc_id
-                
-                if bc_id == bc_module.BC_INLET:
-                    bc_data_host[i]['v0'] = params['rho']
-                    bc_data_host[i]['v1'] = params['u']
-                    bc_data_host[i]['v2'] = params['v']
-                    bc_data_host[i]['v3'] = params['p']
-                elif bc_id == bc_module.BC_OUTLET:
-                    bc_data_host[i]['v0'] = params['p_back']
-                elif bc_id == bc_module.BC_FARFIELD:
-                    bc_data_host[i]['v0'] = params['rho']
-                    bc_data_host[i]['v1'] = params['u']
-                    bc_data_host[i]['v2'] = params['v']
-                    bc_data_host[i]['v3'] = params['p']
-            
-            self.bc_data = wp.array(bc_data_host, dtype=bc_struct_type, device=self.device)
-        else:
-            self.bc_data = None
+        self.bc_data = bc_manager.create_device_array(
+            bc_data_list, 
+            self.device, 
+            precision=config.numerics.precision
+        )
 
         # Inverse of Mass Matrix (diagonal)
         weights_2d = np.kron(self.basis.weights_1d.numpy(), self.basis.weights_1d.numpy())

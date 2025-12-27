@@ -59,13 +59,6 @@ class TimeIntegrator:
         t = state.t
         step = state.step
         
-        last_output_time = 0.0
-        output_steps_dir = "data/steps"
-        
-        # Ensure output directory exists if using legacy .npz output
-        if writer is None and not os.path.exists(output_steps_dir):
-            os.makedirs(output_steps_dir)
-            
         # Use a CUDA stream for asynchronous execution if running on GPU
         use_stream = self.device == "cuda"
         if use_stream:
@@ -121,6 +114,3 @@ class TimeIntegrator:
                 # Write output
                 if writer:
                     writer.write_step(step, t, q_np)
-                else:
-                    # Legacy fallback
-                    np.savez(f"{output_steps_dir}/step_{step:04d}.npz", q=q_np)

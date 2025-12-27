@@ -1,5 +1,7 @@
 import numpy as np
+import warp as wp
 from src.kernels import boundary_conditions as bc
+from src.kernels.structs import BoundaryState32, BoundaryState64
 
 class BoundaryConditionManager:
     """
@@ -16,6 +18,49 @@ class BoundaryConditionManager:
     def __init__(self, mesh, config):
         self.mesh = mesh
         self.config = config
+
+    def create_device_array(self, bc_data_list, device, precision="single"):
+        """
+        Creates a Warp device array from the list of boundary condition data.
+        
+        Args:
+            bc_data_list (list): List of BC data dictionaries.
+            device (str): Warp device.
+            precision (str): "single" or "double".
+            
+        Returns:
+            wp.array: Warp array of BoundaryState structs.
+        """
+        num_bcs = len(bc_data_list)
+        if num_bcs == 0:
+            return None
+            
+        struct_type = BoundaryState64 if precision == "double" else BoundaryState32
+        
+        # Use Warp's internal numpy_dtype to ensure correct alignment/padding
+        bc_data_host = np.zeros(num_bcs, dtype=struct_type.numpy_dtype())
+        
+        for i, data in enumerate(bc_data_list):
+            bc_id = data['type']
+            params = data['params']
+            bc_data_host[i]['type'] = bc_id
+            
+            if bc_id == bc.BC_INLET:
+                bc_data_host[i]['v0'] = params['rho']
+                bc_data_host[i]['v1'] = params['u']
+                bc_data_host[i]['v2'] = params['v']
+                bc_data_host[i]['v3'] = params['p']
+            elif bc_id == bc.BC_OUTLET:
+                bc_data_host[i]['v0'] = params['p_back']
+            elif bc_id == bc.BC_FARFIELD:
+                bc_data_host[i]['v0'] = params['rho']
+                bc_data_host[i]['v1'] = params['u']
+                bc_data_host[i]['v2'] = params['v']
+                bc_data_host[i]['v3'] = params['p']
+            elif bc_id == bc.BC_ISOTHERMAL_WALL:
+                bc_data_host[i]['v0'] = params['T_wall']
+                
+        return wp.array(bc_data_host, dtype=struct_type, device=device)
 
     @staticmethod
     def apply_periodic_conditions(mesh, config):

@@ -2,7 +2,7 @@ from src.geometry.mesh import Mesh
 from src.core.basis import Basis
 from src.core.solver_builder import SolverBuilder
 from src.numerics.time_steppers import RK4Stepper
-from src.core.driver import TimeIntegrator
+from src.core.time_integrator import TimeIntegrator
 from src.io.data_writer import HDF5Writer
 from src.physics.initial_conditions import get_ic_function
 from src.core.boundary_condition_manager import BoundaryConditionManager

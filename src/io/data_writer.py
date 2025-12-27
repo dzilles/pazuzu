@@ -1,7 +1,7 @@
 import h5py
 import numpy as np
 import os
-from src.physics.equations import conservative_to_primitive
+from src.physics.laws.common import conservative_to_primitive
 
 class HDF5Writer:
     """

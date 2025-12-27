@@ -1,6 +1,6 @@
 from src.core.config import PazuzuConfig, SolverType
-from src.physics.euler_2d import Euler2DSolver
-from src.physics.navier_stokes_2d import NavierStokes2DSolver
+from src.physics.solvers.euler_2d import Euler2DSolver
+from src.physics.solvers.navier_stokes_2d import NavierStokes2DSolver
 
 class SolverBuilder:
     """

@@ -1,6 +1,6 @@
 import warp as wp
 from src.kernels import boundary_conditions as bc
-from src.physics.models.euler_laws import pressure
+from src.physics.laws.euler import pressure
 from typing import Any
 
 @wp.func

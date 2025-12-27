@@ -1,13 +1,13 @@
-from .base_solver import BaseSolver
+from .base import BaseSolver
 from src.geometry.mesh import Mesh
 from src.core.basis import Basis
 from src.core.boundary_condition_manager import BoundaryConditionManager
-from src.physics import equations as eq
+from src.physics.laws import common as eq
 from src.kernels import euler_kernels as ek
 from src.kernels import navier_stokes_kernels as nsk
 from src.kernels import common_kernels as ck
 from src.kernels.structs import EquationParams32, EquationParams64
-from src.core.state import SimulationState
+from src.core.simulation_state import SimulationState
 import numpy as np
 import warp as wp
 from src.core.config import PazuzuConfig, FluxType, LimiterType
