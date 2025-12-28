@@ -314,6 +314,29 @@ def accumulate_interface_fluxes(
     else:
         f_star = rusanov_flux(q_inner, q_outer, f_n_inner, f_n_outer, nx, ny, params)
     
+    # --- FIX START ---
+    # Explicitly enforce No-Penetration Condition on the Numerical Flux.
+    # For any solid wall (Slip or No-Slip), u_n = 0.
+    # Therefore, Convective Mass Flux (index 0) and Energy Flux (index 3) MUST be zero.
+    if neighbor_e < 0:
+        bc_index = bc_mask[e, face_idx]
+        bc_type = bc_data[bc_index].type
+        
+        # Check for any Wall type (Slip, No-Slip, Isothermal, Cylinder)
+        is_wall = (bc_type == bc.BC_WALL) or \
+                  (bc_type == bc.BC_NO_SLIP_WALL) or \
+                  (bc_type == bc.BC_ISOTHERMAL_WALL) or \
+                  (bc_type == bc.BC_CYLINDER_WALL)
+        
+        if is_wall:
+            zero = params.one - params.one
+            # Zero out Mass Flux (rho * u_n)
+            f_star = bc.set_vec4_generic(f_star, 0, zero)
+            # Zero out Energy Flux ( (rho*E + P) * u_n )
+            f_star = bc.set_vec4_generic(f_star, 3, zero)
+            # Note: Momentum flux (indices 1, 2) remains as computed (Pressure forces)
+    # --- FIX END ---
+
     # --- 4. Flux Jump ---
     flux_jump = (f_n_inner - f_star) * surf_J
     

@@ -231,7 +231,7 @@ class NavierStokes2DSolver(BaseSolver):
         )
         
         wp.launch(
-            kernel=nsk.compute_viscous_surface_term,
+            kernel=nsk.compute_viscous_surface_term_kernel,
             dim=self.mesh.num_elements,
             inputs=[q, self.grad_u, self.grad_v, self.grad_T, rhs,
                     self.mesh.connectivity, self.mesh.connectivity_face_indices, self.basis.face_nodes, self.basis.LIFT,

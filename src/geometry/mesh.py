@@ -216,9 +216,8 @@ class Mesh:
             J = dx_dr * dy_ds - dx_ds * dy_dr
             
             # Check for inverted elements
-            if np.any(J <= 0.0):
-                min_j = np.min(J)
-                raise ValueError(f"Mesh contains inverted element at index {i} with Jacobian {min_j}")
+            # We defer exception to check for global inversion
+            pass
 
             self.J_host[i, :] = J
             self.rx_host[i, :] =  dy_ds / J; self.ry_host[i, :] = -dx_ds / J
@@ -262,6 +261,24 @@ class Mesh:
             nx, ny = -dy_ds_3, dx_ds_3 
             J_face = np.sqrt(nx**2 + ny**2)
             self.face_geo_factors_host[i, 3, :] = [nx/J_face, ny/J_face, J_face]
+
+        # --- Check for Global Inversion ---
+        negative_jacobians = np.sum(np.any(self.J_host <= 0.0, axis=1))
+        
+        if negative_jacobians > 0:
+            if negative_jacobians > 0.5 * self.num_elements:
+                print(f"Warning: Detected global mesh inversion ({negative_jacobians}/{self.num_elements} elements). Flipping orientation...")
+                self._flip_mesh_orientation()
+                
+                # Re-run compute_geometry (recursive call)
+                self.compute_geometry(basis, dtype_warp, dtype_np)
+                return
+            else:
+                # Local inversion or mixed orientation -> Fatal
+                for i in range(self.num_elements):
+                    if np.any(self.J_host[i, :] <= 0.0):
+                         min_j = np.min(self.J_host[i, :])
+                         raise ValueError(f"Mesh contains inverted element at index {i} with Jacobian {min_j}")
             
         # --- Transfer to Warp ---
         self.rx = wp.array(self.rx_host, dtype=dtype_warp, device=self.device)
@@ -283,6 +300,53 @@ class Mesh:
             self.J_q = wp.array(self.J_q_host, dtype=dtype_warp, device=self.device)
             self.x_q = wp.array(self.x_q_host, dtype=dtype_warp, device=self.device)
             self.y_q = wp.array(self.y_q_host, dtype=dtype_warp, device=self.device)
+
+    def _flip_mesh_orientation(self):
+        """
+        Flips the orientation of all elements in the mesh.
+        Used to correct meshes where vertices are defined clockwise instead of counter-clockwise.
+        
+        Transformation:
+        - Vertices: Swap nodes 1 and 3.
+        - Connectivity: Rotate columns [0, 1, 2, 3] -> [3, 2, 1, 0].
+        - Neighbor Faces: Remap indices 0->3, 1->2, 2->1, 3->0.
+        """
+        # 1. Flip Vertices (Swap col 1 and 3)
+        # self.vertices_host shape: (NumElements, 4, 2)
+        # Note: We need a copy to swap correctly
+        v_copy = self.vertices_host.copy()
+        self.vertices_host[:, 1] = v_copy[:, 3]
+        self.vertices_host[:, 3] = v_copy[:, 1]
+        
+        # 2. Reorder Connectivity and Boundary Tags
+        # Map: Old 0 -> New 3, Old 1 -> New 2, Old 2 -> New 1, Old 3 -> New 0
+        perm = [3, 2, 1, 0]
+        
+        self.connectivity_host = self.connectivity_host[:, perm]
+        self.boundary_tags_host = self.boundary_tags_host[:, perm]
+        
+        # 3. Remap Neighbor Face Indices
+        # The connectivity_host[:, :, 1] contains the face index of the neighbor.
+        # This index also needs to be flipped according to the same mapping.
+        # 0->3, 1->2, 2->1, 3->0.
+        # This is equivalent to `3 - index`.
+        
+        # Only update where neighbor exists (neighbor_elem != -1)
+        # Actually connectivity_host is initialized to -1.
+        mask = self.connectivity_host[:, :, 0] >= 0
+        
+        # Safe update
+        neighbor_faces = self.connectivity_host[:, :, 1]
+        # We need to map the values.
+        # Since 0->3, 1->2, etc., we can use a lookup array or math.
+        # 3 - x works perfectly for (0,1,2,3).
+        self.connectivity_host[:, :, 1] = np.where(mask, 3 - neighbor_faces, neighbor_faces)
+        
+        # 4. Update Device Arrays
+        self.vertices = wp.array(self.vertices_host, dtype=wp.vec2, device=self.device)
+        self.connectivity = wp.array(self.connectivity_host[:, :, 0], dtype=wp.int32, device=self.device)
+        self.connectivity_face_indices = wp.array(self.connectivity_host[:, :, 1], dtype=wp.int32, device=self.device)
+        self.boundary_tags = wp.array(self.boundary_tags_host, dtype=wp.int32, device=self.device)
 
     def _load_from_file(self, filename):
         """

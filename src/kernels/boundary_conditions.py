@@ -236,13 +236,15 @@ def apply_no_slip_wall(q_inner: Any, params: Any):
     Applies No-Slip Wall boundary condition (u=0, v=0, adiabatic).
     For strict no-slip, u_star = 0.5*(u_i + u_o) = 0 => u_o = -u_i.
     """
-    rho = q_inner[0]
+    rho = wp.max(params.rho_floor, q_inner[0])
     E_kin = params.half * (q_inner[1]*q_inner[1] + q_inner[2]*q_inner[2]) / rho
-    p = (params.gamma - params.one) * (q_inner[3] - E_kin)
+    p_raw = (params.gamma - params.one) * (q_inner[3] - E_kin)
+    p = wp.max(params.p_floor, p_raw)
     
     # Ghost state: same rho, reflected momentum, same p
-    # E_ghost = p/(gamma-1) + 0.5*rho*(-u)^2 = same as E_inner
-    return make_vec4_generic(rho, -q_inner[1], -q_inner[2], q_inner[3])
+    # E_ghost = p/(gamma-1) + 0.5*rho*(-u)^2
+    E_ghost = p / (params.gamma - params.one) + E_kin
+    return make_vec4_generic(rho, -q_inner[1], -q_inner[2], E_ghost)
 
 @wp.func
 def apply_isothermal_wall(q_inner: Any, T_wall: Any, params: Any):

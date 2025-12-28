@@ -131,6 +131,15 @@ def compute_primitive_gradients_surface(
             jump_u = (u_star - u_i) * surf_J
             jump_v = (v_star - v_i) * surf_J
             jump_T = (T_star - T_i) * surf_J
+
+            if neighbor_e < 0:
+                bc_type = bc_data[bc_index].type
+                if bc_type == bc.BC_NO_SLIP_WALL or bc_type == bc.BC_ISOTHERMAL_WALL:
+                    # For No-Slip walls, the interface value of velocity is exactly zero.
+                    u_star_wall = params.one - params.one
+                    v_star_wall = params.one - params.one
+                    jump_u = (u_star_wall - u_i) * surf_J
+                    jump_v = (v_star_wall - v_i) * surf_J
             
             lift_col = face_idx * Nfp + k
             for i in range(q.shape[1]):
@@ -194,7 +203,36 @@ def compute_viscous_volume_term(
     rhs[e, i] += div_Fv
 
 @wp.kernel
+def compute_viscous_surface_term_kernel(
+    q: wp.array(dtype=Any, ndim=2),
+    grad_u: wp.array(dtype=Any, ndim=2),
+    grad_v: wp.array(dtype=Any, ndim=2),
+    grad_T: wp.array(dtype=Any, ndim=2),
+    rhs: wp.array(dtype=Any, ndim=2),
+    connectivity: wp.array(dtype=wp.int32, ndim=2),
+    neighbor_face_indices: wp.array(dtype=wp.int32, ndim=2),
+    face_map: wp.array(dtype=wp.int32, ndim=2),
+    LIFT: wp.array(dtype=Any, ndim=2),
+    face_geo_factors: wp.array(dtype=Any, ndim=3), 
+    J: wp.array(dtype=Any, ndim=2),     
+    bc_mask: wp.array(dtype=wp.int32, ndim=2),
+    bc_data: wp.array(dtype=Any, ndim=1),
+    coord_x: wp.array(dtype=Any, ndim=2),
+    coord_y: wp.array(dtype=Any, ndim=2),
+    Nfp: wp.int32,
+    t: Any,
+    ramp_time: Any,
+    params: Any
+):
+    e = wp.tid()
+    compute_viscous_surface_term(
+        e, q, grad_u, grad_v, grad_T, rhs, connectivity, neighbor_face_indices, face_map,
+        LIFT, face_geo_factors, J, bc_mask, bc_data, coord_x, coord_y, Nfp, t, ramp_time, params
+    )
+
+@wp.func
 def compute_viscous_surface_term(
+    e: int,
     q: wp.array(dtype=Any, ndim=2),
     grad_u: wp.array(dtype=Any, ndim=2),
     grad_v: wp.array(dtype=Any, ndim=2),
@@ -218,7 +256,6 @@ def compute_viscous_surface_term(
     """
     Computes viscous numerical flux surface integral: LIFT * (Fv_star . n - Fv_inner . n) / J
     """
-    e = wp.tid()
     
     for face_idx in range(4):
         nx = face_geo_factors[e, face_idx, 0]
@@ -254,14 +291,47 @@ def compute_viscous_surface_term(
                 x = coord_x[e, node_idx_local]
                 y = coord_y[e, node_idx_local]
                 qo = bc.apply_boundary_condition(bc_index, bc_data, qi, nx, ny, x, y, t, ramp_time, params)
-                guo = gui
-                gvo = gvi
-                gTo = gTi
+                
+                # For No-Slip Wall (Adiabatic or Isothermal), we must ensure consistent viscous stresses.
+                bc_type = bc_data[bc_index].type
+                if bc_type == bc.BC_NO_SLIP_WALL or bc_type == bc.BC_ISOTHERMAL_WALL:
+                    # 1. Temperature Gradient
+                    if bc_type == bc.BC_NO_SLIP_WALL:
+                        # Adiabatic Wall (Neumann=0): Heat Flux must be zero.
+                        # Reflection: Flip the NORMAL component of grad T.
+                        dot_T = gTi[0] * nx + gTi[1] * ny
+                        gTo = bc.make_vec2_generic(gTi[0] - params.one * (dot_T + dot_T) * nx, gTi[1] - params.one * (dot_T + dot_T) * ny)
+                    else:
+                        # Isothermal Wall: T is fixed, grad T remains as extrapolated from interior.
+                        gTo = gTi
+
+                    # 2. No-Slip Wall (Dirichlet=0): Velocity must be zero at the interface.
+                    # Reflection: Preserve NORMAL component, Flip TANGENTIAL component of grad U/V.
+                    # Formula: g_out = 2*(g_in . n) * n - g_in
+                    dot_u = gui[0] * nx + gui[1] * ny
+                    guo = bc.make_vec2_generic(params.one * (dot_u + dot_u) * nx - gui[0], params.one * (dot_u + dot_u) * ny - gui[1])
+                    
+                    dot_v = gvi[0] * nx + gvi[1] * ny
+                    gvo = bc.make_vec2_generic(params.one * (dot_v + dot_v) * nx - gvi[0], params.one * (dot_v + dot_v) * ny - gvi[1])
+                else:
+                    gTo = gTi
+                    guo = gui
+                    gvo = gvi
                 
             Fvo = viscous_flux_x(qo, guo, gvo, gTo, params) * nx + viscous_flux_y(qo, guo, gvo, gTo, params) * ny
             
             # Central viscous flux star
             Fv_star = params.half * (Fvi + Fvo)
+            
+            # Enforce exact zero energy flux for Adiabatic No-Slip walls.
+            # This removes spurious viscous work terms (u.tau) that don't cancel perfectly.
+            # We use a check on neighbor_e < 0 to ensure we are on a boundary.
+            if neighbor_e < 0:
+                 bc_type_check = bc_data[bc_index].type
+                 if bc_type_check == bc.BC_NO_SLIP_WALL:
+                     # Set Energy flux (index 3) to 0.0
+                     zero = params.one - params.one
+                     Fv_star = bc.set_vec4_generic(Fv_star, 3, zero)
             
             # RHS contribution (strong form)
             jump = (Fv_star - Fvi) * surf_J

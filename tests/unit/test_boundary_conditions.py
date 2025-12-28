@@ -69,6 +69,15 @@ def kernel_outlet(
     bc_state = bc_data[0]
     q_out[tid] = bc.apply_outlet(q_inner[tid], nx, ny, bc_state, params)
 
+@wp.kernel
+def kernel_no_slip_wall(
+    q_inner: wp.array(dtype=wp.vec4),
+    q_out: wp.array(dtype=wp.vec4),
+    params: Any
+):
+    tid = wp.tid()
+    q_out[tid] = bc.apply_no_slip_wall(q_inner[tid], params)
+
 @pytest.mark.parametrize("nx, ny, u_in, v_in", [
     (1.0, 0.0, 1.0, 1.0),   # Normal in x, velocity (1,1) -> reflected (-1,1)
     (0.0, 1.0, 1.0, 1.0),   # Normal in y, velocity (1,1) -> reflected (1,-1)
@@ -102,6 +111,45 @@ def test_slip_wall(nx, ny, u_in, v_in, device, params):
     np.testing.assert_allclose(v_out, v_expected, atol=1e-6)
     assert pytest.approx(q_out[0]) == q_inner[0] # Density should be same
     assert pytest.approx(q_out[3]) == q_inner[3] # Energy should be same
+
+def test_no_slip_wall(device, params):
+    # Case 1: Standard state
+    # rho=1.0, u=1.0, v=2.0, p=1.0
+    # E = 1.0/(1.4-1.0) + 0.5*1.0*(1*1 + 2*2) = 2.5 + 2.5 = 5.0
+    q_inner = [1.0, 1.0, 2.0, 5.0]
+    q_inner_wp = wp.array([q_inner], dtype=wp.vec4, device=device)
+    q_out_wp = wp.zeros(1, dtype=wp.vec4, device=device)
+    
+    wp.launch(kernel=kernel_no_slip_wall, dim=1, inputs=[q_inner_wp, q_out_wp, params], device=device)
+    
+    q_out = q_out_wp.numpy()[0]
+    assert q_out[0] == 1.0
+    assert q_out[1] == -1.0
+    assert q_out[2] == -2.0
+    assert q_out[3] == 5.0
+
+    # Case 2: Negative density floor
+    # rho = -1.0, floor = 1e-6
+    q_inner = [-1.0, 0.0, 0.0, 1.0]
+    q_inner_wp = wp.array([q_inner], dtype=wp.vec4, device=device)
+    
+    wp.launch(kernel=kernel_no_slip_wall, dim=1, inputs=[q_inner_wp, q_out_wp, params], device=device)
+    
+    q_out = q_out_wp.numpy()[0]
+    assert q_out[0] == params.rho_floor
+    
+    # Case 3: Negative pressure floor
+    # rho=1.0, u=0.0, v=0.0, E=0.0 => p_raw = 0.4 * (0 - 0) = 0. floor = 1e-6
+    q_inner = [1.0, 0.0, 0.0, 0.0]
+    q_inner_wp = wp.array([q_inner], dtype=wp.vec4, device=device)
+    
+    wp.launch(kernel=kernel_no_slip_wall, dim=1, inputs=[q_inner_wp, q_out_wp, params], device=device)
+    
+    q_out = q_out_wp.numpy()[0]
+    assert q_out[0] == 1.0
+    # p_raw = 0, p = 1e-6.
+    # E_ghost = 1e-6 / 0.4 + 0 = 2.5e-6
+    assert pytest.approx(q_out[3]) == 2.5e-6
 
 @pytest.mark.parametrize("rho_target, u_target, v_target, p_target", [
     (1.0, -2.0, 0.0, 1.0), # Supersonic inflow (un < -c)
