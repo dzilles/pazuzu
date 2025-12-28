@@ -1,5 +1,6 @@
 import warp as wp
 import numpy as np
+import os
 from src.core.config import PazuzuConfig, SolverType
 from src.core.simulation_state import SimulationState
 from src.core.basis import Basis
@@ -9,6 +10,7 @@ from src.physics.laws.euler import EquationParams32
 from src.kernels.fr_kernels import compute_fr_update
 from src.kernels.structs import EquationParams32 as ParamsStruct
 from src.kernels.initial_conditions import init_isentropic_vortex
+from src.io.data_writer import HDF5Writer
 
 class PazuzuSolver:
     def __init__(self, config_path: str):
@@ -32,9 +34,18 @@ class PazuzuSolver:
         )
         
         # 3. Initialize Geometry
+        bounds = (
+            self.config.mesh.x_min,
+            self.config.mesh.y_min,
+            self.config.mesh.x_max,
+            self.config.mesh.y_max
+        )
         self.quadtree = Quadtree(
             device=self.device, 
-            max_blocks=self.config.amr.max_blocks
+            max_blocks=self.config.amr.max_blocks,
+            root_bounds=bounds,
+            periodic_x=self.config.mesh.periodic_x,
+            periodic_y=self.config.mesh.periodic_y
         )
         
         # 4. Initialize Time Integrator
@@ -46,6 +57,17 @@ class PazuzuSolver:
         # 6. Initial Condition (Mesh Generation)
         self._init_mesh()
         self._apply_initial_condition()
+
+        # 7. Initialize Writer
+        output_dir = self.config.io.output_dir
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            
+        self.writer = HDF5Writer(os.path.join(output_dir, "results.h5"), self)
+        
+        # Write Initial State (Step 0)
+        print("Saving initial state...")
+        self.writer.write_step(0, 0.0)
 
     def _init_physics(self):
         # Convert config physics to Warp struct
@@ -59,19 +81,32 @@ class PazuzuSolver:
         params_np[0]['half'] = 0.5
         params_np[0]['one'] = 1.0
         # ... others
+        params_np[0]['rho_inf'] = p.rho_inf
+        params_np[0]['u_inf'] = p.u_inf
+        params_np[0]['v_inf'] = p.v_inf
+        params_np[0]['p_inf'] = p.p_inf
         
         self.params = wp.array(params_np, dtype=ParamsStruct, device=self.device)
 
     def _init_mesh(self):
         # Uniform Refinement to start
-        # Use a fixed level for now (Phase 2)
-        # We could read from config if added. Assuming Level 3 (8x8) for test.
-        initial_level = 3
+        initial_level = self.config.amr.initial_depth
         self.quadtree.uniform_refine(initial_level, self.state, self.basis)
 
     def _apply_initial_condition(self):
-        if isinstance(self.config.initial_condition, str) and self.config.initial_condition == "vortex":
-            print("Applying Isentropic Vortex IC...")
+        ic_name = ""
+        params = {}
+        
+        if isinstance(self.config.initial_condition, str):
+            ic_name = self.config.initial_condition
+        else:
+            ic_name = self.config.initial_condition.name
+            params = self.config.initial_condition.params
+
+        if ic_name == "vortex":
+            beta = params.get("beta", 5.0)
+            radius = params.get("radius", 1.0)
+            print(f"Applying Isentropic Vortex IC (beta={beta}, radius={radius})...")
             wp.launch(
                 kernel=init_isentropic_vortex,
                 dim=(self.quadtree.num_blocks, self.basis.Np),
@@ -82,12 +117,14 @@ class PazuzuSolver:
                     self.state.active_block_indices,
                     self.quadtree.num_blocks,
                     self.params,
-                    0.0
+                    0.0,
+                    float(beta),
+                    float(radius)
                 ],
                 device=self.device
             )
         else:
-            print(f"Warning: Unknown IC '{self.config.initial_condition}'. State zeroed.")
+            print(f"Warning: Unknown IC '{ic_name}'. State zeroed.")
 
     def compute_rhs(self, t, q_in, rhs_out):
         """
@@ -120,9 +157,13 @@ class PazuzuSolver:
     def run(self):
         print(f"Starting simulation: {self.config.case_name}")
         t = 0.0
-        dt = 0.001 # Fixed DT for now
+        dt = 0.001 # Fixed DT for now. 
+        # Ideally, calculate DT based on CFL: dt = CFL * dx / max_wave_speed
         
-        while t < self.config.simulation.t_final:
+        log_freq = self.config.io.write_interval
+        t_final = self.config.simulation.t_final
+        
+        while t < t_final:
             self.integrator.step_ssp_rk3(
                 self.compute_rhs,
                 dt,
@@ -130,7 +171,11 @@ class PazuzuSolver:
                 self.quadtree.num_blocks
             )
             t += dt
-            print(f"Step {self.state.step}, Time {t:.4f}")
+            self.state.step += 1
+            
+            if self.state.step % log_freq == 0:
+                print(f"Step {self.state.step}, Time {t:.4f}")
+                self.writer.write_step(self.state.step, t)
 
 if __name__ == "__main__":
     import sys
@@ -138,4 +183,4 @@ if __name__ == "__main__":
         solver = PazuzuSolver(sys.argv[1])
         solver.run()
     else:
-        print("Usage: python run_simulation.py <config.yaml>")
+        print("Usage: python pazuzu.py <config.yaml>")

@@ -3,20 +3,36 @@ solver_type: "euler_2d"
 
 physics:
   gamma: 1.4
+  u_inf: 1.0
+  v_inf: 1.0
 
-initial_condition: "vortex"
+initial_condition:
+  name: "vortex"
+  params:
+    beta: 5.0
+    radius: 1.0
+
+mesh:
+  x_min: -5.0
+  x_max: 5.0
+  y_min: -5.0
+  y_max: 5.0
+  periodic_x: true
+  periodic_y: true
 
 io:
-  write_interval: 10
+  write_interval: 50
   output_dir: "output"
 
 simulation:
-  t_final: 0.1
-  device: "cpu"
+  t_final: 1
+  device: "cuda"
 
 amr:
-  max_blocks: 100
-  max_depth: 5
+  max_blocks: 20000
+  max_depth: 7
+  initial_depth: 7
 
 numerics:
   polynomial_order: 3
+  precision: "double"

@@ -63,11 +63,23 @@ class InitialConditionConfig(BaseModel):
 class AmrConfig(BaseModel):
     max_blocks: int = Field(default=10000, gt=0, description="Maximum number of blocks in the memory pool")
     max_depth: int = Field(default=5, ge=0, description="Maximum refinement depth")
+    initial_depth: int = Field(default=3, ge=0, description="Initial refinement depth (uniform)")
     refinement_threshold: float = Field(default=0.1, gt=0.0, description="Threshold for refinement/coarsening")
+
+class MeshConfig(BaseModel):
+    x_min: float = Field(default=-1.0, description="Domain x-min")
+    x_max: float = Field(default=1.0, description="Domain x-max")
+    y_min: float = Field(default=-1.0, description="Domain y-min")
+    y_max: float = Field(default=1.0, description="Domain y-max")
+    periodic_x: bool = Field(default=False, description="Periodic boundary in X")
+    periodic_y: bool = Field(default=False, description="Periodic boundary in Y")
 
 class PazuzuConfig(BaseModel):
     case_name: str = Field(default="simulation", description="Name of the simulation case")
     solver_type: SolverType = Field(default=SolverType.EULER_2D, description="Type of solver to use")
+    mesh: MeshConfig = Field(default_factory=MeshConfig, description="Mesh/Domain configuration")
+    amr: AmrConfig = Field(default_factory=AmrConfig, description="AMR configuration")
+    initial_condition: Union[str, InitialConditionConfig] = Field(default="vortex", description="Initial condition configuration")
     # mesh_file: str = Field(..., description="Path to the mesh file (.msh)") # Removed in favor of AMR
     amr: AmrConfig = Field(default_factory=AmrConfig, description="AMR configuration")
     initial_condition: Union[str, InitialConditionConfig] = Field(default="vortex", description="Initial condition configuration")

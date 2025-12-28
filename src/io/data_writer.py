@@ -1,33 +1,28 @@
 import h5py
 import numpy as np
 import os
+import warp as wp
 from src.physics.laws.common import conservative_to_primitive
 
 class HDF5Writer:
     """
     Handles writing simulation data to HDF5 format with an accompanying XDMF file for visualization.
-
-    This writer saves the mesh topology/geometry once and appends time-step data as it becomes available.
-    Supports high-order sub-cell tessellation for detailed visualization of DG solutions.
+    
+    Adapted for the Quadtree-based PazuzuSolver.
+    Writes high-order GLL nodes as explicit points, allowing for detailed sub-cell visualization in Paraview.
     """
-    def __init__(self, filename, mesh, basis=None, node_coords=None):
+    def __init__(self, filename, solver):
         """
         Initializes the HDF5 Writer and writes the mesh geometry.
 
         Args:
             filename (str): The path where the .h5 file will be created.
-            mesh (Mesh): The simulation mesh.
-            basis (Basis, optional): The DG basis. If provided, enables sub-cell visualization.
-            node_coords (tuple, optional): (x, y) arrays of shape (NumElements, Np) with physical coordinates.
-                                           Required if basis is provided.
+            solver (PazuzuSolver): The solver instance containing state and geometry.
         """
         self.filename = filename
-        self.mesh = mesh
-        self.basis = basis
+        self.solver = solver
         self.xmf_filename = filename.replace(".h5", ".xmf")
         self.steps = []
-        
-        self.use_high_order = (basis is not None and node_coords is not None)
         
         # Ensure output directory exists
         out_dir = os.path.dirname(filename)
@@ -39,110 +34,114 @@ class HDF5Writer:
             try: os.remove(self.filename)
             except: pass
 
+        # Extract Geometry from Solver
+        # We assume the mesh is static for now (no adaptive refinement *during* the run that changes the writer)
+        # If AMR happens, we'd need to re-write geometry or use XMF's temporal grid support fully (heavy).
+        # For Phase 2, we assume the initial mesh (after refinement) stays fixed or we only write the initial state layout.
+        # NOTE: If AMR changes the mesh, this writer needs to be re-initialized or updated per step. 
+        # For now, we capture the mesh at __init__.
+        
+        num_blocks = solver.quadtree.num_blocks
+        N = solver.basis.N
+        N1 = N + 1
+        Np = solver.basis.Np
+        
+        # Fetch coordinates for active blocks
+        # state.x: (MAX_BLOCKS, Np) -> slice to (num_blocks, Np)
+        x_wp = solver.state.x
+        y_wp = solver.state.y
+        
+        # We need to copy to host
+        # Slicing in Warp python API: array[start:end]
+        # But Warp arrays are 1D in some contexts or multidimensional. 
+        # state.x is (MAX_BLOCKS, Np). We can't easily slice distinct rows if they are not contiguous in memory 
+        # (they are in the pool), but we can just copy the first num_blocks * Np elements if we view it as flat,
+        # OR copy the whole thing and slice in numpy.
+        # Since MAX_BLOCKS isn't huge (10k * 16 * 4 bytes ~ 640KB), copying all is fine.
+        
+        x_all = x_wp.numpy()[:num_blocks, :] # (num_blocks, Np)
+        y_all = y_wp.numpy()[:num_blocks, :]
+        
+        verts_x = x_all.flatten()
+        verts_y = y_all.flatten()
+        n_points = verts_x.shape[0]
+        
         # Initialize HDF5 file and write static mesh data
         with h5py.File(self.filename, 'w') as f:
             # Create Mesh Group
             mesh_grp = f.create_group("mesh")
             
-            if self.use_high_order:
-                # --- High-Order Visualization (Sub-cell tessellation) ---
-                N = self.basis.N
-                N1 = N + 1
-                Np = self.basis.Np
-                n_elems = self.mesh.num_elements
-                
-                # 1. Vertices: All GLL nodes
-                # Input coords: (NumElements, Np)
-                x_all, y_all = node_coords
-                verts_x = x_all.flatten()
-                verts_y = y_all.flatten()
-                n_points = verts_x.shape[0]
-                
-                points = np.zeros((n_points, 3), dtype=np.float32)
-                points[:, 0] = verts_x
-                points[:, 1] = verts_y
-                mesh_grp.create_dataset("points", data=points)
-                
-                # 2. Connectivity: N*N sub-quads per element
-                # Each sub-quad (i,j) connects (i,j), (i+1,j), (i+1,j+1), (i,j+1)
-                # Local GLL indices
-                sub_quads = []
-                for j in range(N):
-                    for i in range(N):
-                        n0 = j * N1 + i
-                        n1 = j * N1 + (i + 1)
-                        n2 = (j + 1) * N1 + (i + 1)
-                        n3 = (j + 1) * N1 + i
-                        sub_quads.append([n0, n1, n2, n3])
-                sub_quads = np.array(sub_quads, dtype=np.int32) # Shape (N*N, 4)
-                
-                n_sub_cells = N * N
-                
-                # Replicate for all elements
-                # Global offsets: elem_idx * Np
-                offsets = np.arange(n_elems) * Np
-                # Broadcast addition: (NumElements, 1, 1) + (1, n_sub_cells, 4) -> (NumElems, n_sub_cells, 4)
-                all_conn = offsets[:, None, None] + sub_quads[None, :, :]
-                
-                conn = all_conn.reshape(-1, 4)
-                mesh_grp.create_dataset("connectivity", data=conn)
-                
-                self.n_vis_elements = conn.shape[0]
-                self.n_vis_points = n_points
-                
-            else:
-                # --- Low-Order Visualization (Cell Average) ---
-                # Vertices are stored as (NumElements, 4, 2) in the mesh object (Discontinuous).
-                verts_2d = mesh.vertices_host.reshape(-1, 2)
-                n_points = verts_2d.shape[0]
-                points = np.zeros((n_points, 3), dtype=np.float32)
-                points[:, 0] = verts_2d[:, 0]
-                points[:, 1] = verts_2d[:, 1]
-                
-                mesh_grp.create_dataset("points", data=points)
-                
-                # Connectivity: linear
-                conn = np.arange(n_points, dtype=np.int32).reshape(-1, 4)
-                mesh_grp.create_dataset("connectivity", data=conn)
-                
-                self.n_vis_elements = conn.shape[0]
-                self.n_vis_points = n_points
+            # 1. Vertices (Geometry)
+            points = np.zeros((n_points, 3), dtype=np.float32)
+            points[:, 0] = verts_x
+            points[:, 1] = verts_y
+            points[:, 2] = 0.0
+            mesh_grp.create_dataset("points", data=points)
+            
+            # 2. Connectivity (Topology)
+            # We construct sub-quads for each high-order element.
+            # Grid is N x N sub-cells per block.
+            # Local node indices in a block:
+            # (j, i) -> j * N1 + i
+            
+            sub_quads = []
+            for j in range(N):
+                for i in range(N):
+                    n0 = j * N1 + i
+                    n1 = j * N1 + (i + 1)
+                    n2 = (j + 1) * N1 + (i + 1)
+                    n3 = (j + 1) * N1 + i
+                    sub_quads.append([n0, n1, n2, n3])
+            sub_quads = np.array(sub_quads, dtype=np.int32) # Shape (N*N, 4)
+            
+            n_sub_cells_per_block = N * N
+            
+            # Replicate for all blocks
+            # Global offsets: block_idx * Np
+            offsets = np.arange(num_blocks) * Np
+            # Broadcast addition: (num_blocks, 1, 1) + (1, n_sub_cells, 4)
+            all_conn = offsets[:, None, None] + sub_quads[None, :, :]
+            
+            conn = all_conn.reshape(-1, 4)
+            mesh_grp.create_dataset("connectivity", data=conn)
+            
+            self.n_vis_elements = conn.shape[0]
+            self.n_vis_points = n_points
             
             # Create Data Group for time steps
             f.create_group("data")
 
-    def write_step(self, step, time, q):
+    def write_step(self, step, time):
         """
         Writes a single simulation time step to the HDF5 file.
         """
+        # Fetch current state
+        # q: (MAX_BLOCKS, Np, 4)
+        num_blocks = self.solver.quadtree.num_blocks
+        q_wp = self.solver.state.q
+        
+        # Copy to host
+        # Shape (MAX_BLOCKS, Np, 4)
+        q_all = q_wp.numpy()
+        q_active = q_all[:num_blocks, :, :] # (num_blocks, Np, 4)
+        
+        # Flatten to (TotalPoints, 4)
+        q_flat = q_active.reshape(-1, 4) # (n_points, 4)
+        
+        # Convert to Primitive variables for visualization
+        # Helper expects (4, N)
+        q_transposed = q_flat.T # (4, n_points)
+        prim = conservative_to_primitive(q_transposed) # (4, n_points)
+        
         with h5py.File(self.filename, 'a') as f:
             grp = f["data"].create_group(f"step_{step}")
             grp.attrs["time"] = time
             grp.attrs["step"] = step
             
-            if self.use_high_order:
-                # --- Write Nodal Data (Point Data) ---
-                # q: (NumElements, Np, 4) -> (NumElements * Np, 4)
-                # Convert to Primitive
-                q_flat = q.reshape(-1, 4).T # (4, TotalPoints)
-                prim = conservative_to_primitive(q_flat)
-                
-                grp.create_dataset("rho", data=prim[0])
-                grp.create_dataset("u", data=prim[1])
-                grp.create_dataset("v", data=prim[2])
-                grp.create_dataset("p", data=prim[3])
-                
-            else:
-                # --- Write Cell Average Data (Cell Data) ---
-                q_reshaped = q.transpose(2, 0, 1).reshape(4, -1)
-                prim_reshaped = conservative_to_primitive(q_reshaped)
-                prim = prim_reshaped.reshape(4, q.shape[0], q.shape[1])
-                avgs = np.mean(prim, axis=2)
-                
-                grp.create_dataset("rho", data=avgs[0])
-                grp.create_dataset("u", data=avgs[1])
-                grp.create_dataset("v", data=avgs[2])
-                grp.create_dataset("p", data=avgs[3])
+            grp.create_dataset("rho", data=prim[0])
+            grp.create_dataset("u", data=prim[1])
+            grp.create_dataset("v", data=prim[2])
+            grp.create_dataset("p", data=prim[3])
             
         self.steps.append((step, time))
         self._write_xmf()
@@ -158,13 +157,9 @@ class HDF5Writer:
             
             h5_rel = os.path.basename(self.filename)
             
-            # Determine Attribute Type and Center
-            if self.use_high_order:
-                attr_type = "Node" # Point Data
-                data_dim = self.n_vis_points
-            else:
-                attr_type = "Cell" # Cell Data
-                data_dim = self.n_vis_elements
+            # Data is Nodal (Point)
+            attr_type = "Node" 
+            data_dim = self.n_vis_points
             
             for step, time in self.steps:
                 f.write(f'   <Grid Name="Step_{step}" GridType="Uniform">\n')

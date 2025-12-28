@@ -97,10 +97,14 @@ def compute_neighbors(
     map_keys: wp.array(dtype=int),
     map_values: wp.array(dtype=int),
     map_capacity: int,
-    out_neighbors: wp.array(dtype=int, ndim=2) # (MAX_BLOCKS, 4)
+    out_neighbors: wp.array(dtype=int, ndim=2), # (MAX_BLOCKS, 4)
+    level: int,
+    periodic_x: int, # boolean 0/1
+    periodic_y: int  # boolean 0/1
 ):
     """
     For each active block, finds neighbors by looking up computed codes in the hash map.
+    Handles periodic boundaries if enabled.
     """
     tid = wp.tid()
     if tid >= num_active:
@@ -112,37 +116,65 @@ def compute_neighbors(
     # Decode to get (x, y)
     ix, iy = morton_decode(code)
     
-    # Calculate Neighbor Codes (assuming uniform grid for Phase 1)
-    # Left: (x-1, y)
-    # Right: (x+1, y)
-    # Bottom: (x, y-1)
-    # Top: (x, y+1)
+    grid_dim = 1 << level
     
-    # Neighbors indices: 0:Left, 1:Right, 2:Bottom, 3:Top
+    # Helper to wrap coordinate
+    # LEFT (Face 0? No, indices 0:Left, 1:Right, 2:Bottom, 3:Top)
+    # Wait, check mapping. 
+    # Current code:
+    # 0: Left (x-1)
+    # 1: Right (x+1)
+    # 2: Bottom (y-1)
+    # 3: Top (y+1)
     
-    # LEFT
+    # --- LEFT ---
+    nx = ix - 1
+    ny = iy
+    if nx < 0:
+        if periodic_x != 0: nx = grid_dim - 1
+        else: nx = -1 # Invalid
+    
     n_idx = -1
-    if ix > 0: # Check domain bounds (implicit 0 min)
-        code_left = morton_encode(ix - 1, iy)
-        n_idx = map_lookup(map_keys, map_values, map_capacity, code_left)
+    if nx >= 0:
+        code_n = morton_encode(nx, ny)
+        n_idx = map_lookup(map_keys, map_values, map_capacity, code_n)
     out_neighbors[pool_idx, 0] = n_idx
 
-    # RIGHT
-    # Note: We don't strictly check upper bound here, rely on map lookup failing (returning -1)
-    # But checking bounds prevents hash collisions or wrapping if not careful? 
-    # Hash map is robust. Just lookup.
-    code_right = morton_encode(ix + 1, iy)
-    n_idx = map_lookup(map_keys, map_values, map_capacity, code_right)
+    # --- RIGHT ---
+    nx = ix + 1
+    ny = iy
+    if nx >= grid_dim:
+        if periodic_x != 0: nx = 0
+        else: nx = -1
+    
+    n_idx = -1
+    if nx >= 0: # -1 indicates OOB non-periodic
+        code_n = morton_encode(nx, ny)
+        n_idx = map_lookup(map_keys, map_values, map_capacity, code_n)
     out_neighbors[pool_idx, 1] = n_idx
     
-    # BOTTOM
+    # --- BOTTOM ---
+    nx = ix
+    ny = iy - 1
+    if ny < 0:
+        if periodic_y != 0: ny = grid_dim - 1
+        else: ny = -1
+        
     n_idx = -1
-    if iy > 0:
-        code_bottom = morton_encode(ix, iy - 1)
-        n_idx = map_lookup(map_keys, map_values, map_capacity, code_bottom)
+    if ny >= 0:
+        code_n = morton_encode(nx, ny)
+        n_idx = map_lookup(map_keys, map_values, map_capacity, code_n)
     out_neighbors[pool_idx, 2] = n_idx
 
-    # TOP
-    code_top = morton_encode(ix, iy + 1)
-    n_idx = map_lookup(map_keys, map_values, map_capacity, code_top)
+    # --- TOP ---
+    nx = ix
+    ny = iy + 1
+    if ny >= grid_dim:
+        if periodic_y != 0: ny = 0
+        else: ny = -1
+        
+    n_idx = -1
+    if ny >= 0:
+        code_n = morton_encode(nx, ny)
+        n_idx = map_lookup(map_keys, map_values, map_capacity, code_n)
     out_neighbors[pool_idx, 3] = n_idx

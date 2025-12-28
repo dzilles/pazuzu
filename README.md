@@ -28,7 +28,7 @@ It supports both the **Euler equations** and the **Navier-Stokes equations** on 
 ## Project Structure
 
 ```text
-├── run_simulation.py       # Main entry point
+├── pazuzu.py               # Main entry point
 ├── config/                 # YAML configuration files
 ├── src/
 │   ├── core/               # Driver, state, and basis functions
@@ -66,14 +66,14 @@ pip install -r requirements.txt
 
 ### Running a Simulation
 
-Use the `run_simulation.py` script with a YAML configuration file.
+Use the `pazuzu.py` script with a YAML configuration file.
 
 ```bash
 # Run with default configuration
-python run_simulation.py
+python pazuzu.py
 
 # Run with a specific configuration
-python run_simulation.py config/my_simulation.yaml
+python pazuzu.py config/my_simulation.yaml
 ```
 
 ### Configuration

@@ -9,7 +9,9 @@ def init_isentropic_vortex(
     active_indices: wp.array(dtype=int),
     num_active: int,
     params: EquationParams32,
-    t: float
+    t: float,
+    beta: float,
+    radius: float
 ):
     # Launch dimensions: (num_active, Np)
     block_idx, node_idx = wp.tid()
@@ -20,35 +22,18 @@ def init_isentropic_vortex(
     yy = y[pool_idx, node_idx]
     
     # Vortex Parameters
-    x0 = 0.0 + t # Advecting with u=1
-    y0 = 0.0
-    beta = 5.0
+    # Advecting with u_inf, v_inf
+    x0 = params.u_inf * t 
+    y0 = params.v_inf * t
     gamma = params.gamma
     
     dx = xx - x0
     dy = yy - y0
     r2 = dx*dx + dy*dy
+    r2_scaled = r2 / (radius * radius)
     
     # f(x,y) = (beta / 2pi) * exp(0.5 * (1 - r^2))
-    # But standard is: delta T = - (gamma-1)/(2gamma) * beta^2 * exp(1-r^2)
-    # let's use standard:
     
-    f = (1.0 - r2)
-    
-    # Periodic BC handling (heuristic)? 
-    # For now assume domain is large enough or conformant.
-    
-    # Temperature and Density
-    # T = 1 - (gamma-1)/2 * M_vortex^2 * exp(1-r^2)
-    # Using beta as strength.
-    
-    S = 13.5 # Strength
-    # Common test case:
-    # u = 1 - S * y * exp(0.5*(1-r^2))
-    # v = 0 + S * x * exp(0.5*(1-r^2)) (Assuming center 0,0)
-    # T = 1 - (gamma-1)*S^2/(8*pi^2) * exp(1-r^2) ? 
-    
-    # Let's use the Gatton/Project standard if known.
     # Standard Isentropic Vortex:
     # u_inf = 1, v_inf = 0.
     # du = - (S / 2pi) * dy * exp(0.5*(1-r2))
@@ -57,16 +42,16 @@ def init_isentropic_vortex(
     # rho = T^(1/(gamma-1))
     # p = rho^gamma
     
-    S_2pi = 5.0 / (2.0 * 3.14159265359)
-    exp_term = wp.exp(0.5 * (1.0 - r2))
+    S_2pi = beta / (2.0 * 3.14159265359)
+    exp_term = wp.exp(0.5 * (1.0 - r2_scaled))
     
     du = -S_2pi * dy * exp_term
     dv =  S_2pi * dx * exp_term
     
-    u = 1.0 + du
-    v = 0.0 + dv
+    u = params.u_inf + du
+    v = params.v_inf + dv
     
-    T_sub = (gamma - 1.0) * 0.5 * (S_2pi * S_2pi) * wp.exp(1.0 - r2)
+    T_sub = (gamma - 1.0) * 0.5 * (S_2pi * S_2pi) * wp.exp(1.0 - r2_scaled)
     T = 1.0 - T_sub
     
     rho = wp.pow(T, 1.0 / (gamma - 1.0))

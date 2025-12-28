@@ -26,10 +26,13 @@ class Quadtree:
     
     Manages the grid hierarchy and mapping to the memory pool.
     """
-    def __init__(self, device: str = "cpu", max_blocks: int = 10000):
+    def __init__(self, device: str = "cpu", max_blocks: int = 10000, root_bounds: Tuple[float, float, float, float] = (-1.0, -1.0, 1.0, 1.0), periodic_x: bool = False, periodic_y: bool = False):
         self.device = device
         self.max_blocks = max_blocks
         self.num_blocks = 0
+        self.root_bounds = root_bounds
+        self.periodic_x = periodic_x
+        self.periodic_y = periodic_y
         
         # Morton codes for blocks resident in the pool.
         # Index i in this array corresponds to block i in SimulationState.
@@ -43,7 +46,7 @@ class Quadtree:
         self.map_values = wp.zeros(self.map_capacity, dtype=wp.int32, device=device)
         
         # Bounds as Warp vector
-        self.root_bounds_wp = wp.vec4(ROOT_BOUNDS[0], ROOT_BOUNDS[1], ROOT_BOUNDS[2], ROOT_BOUNDS[3])
+        self.root_bounds_wp = wp.vec4(root_bounds[0], root_bounds[1], root_bounds[2], root_bounds[3])
 
     def uniform_refine(self, level: int, state, basis):
         """
@@ -105,11 +108,11 @@ class Quadtree:
         )
         
         # 5. Build Connectivity
-        self.build_connectivity(state)
+        self.build_connectivity(state, level)
         
         print(f"Created {self.num_blocks} blocks.")
 
-    def build_connectivity(self, state):
+    def build_connectivity(self, state, level: int):
         """
         Rebuilds the hash map and computes neighbors for all active blocks.
         """
@@ -150,7 +153,10 @@ class Quadtree:
                 self.map_keys,
                 self.map_values,
                 self.map_capacity,
-                state.neighbors
+                state.neighbors,
+                level,
+                int(self.periodic_x),
+                int(self.periodic_y)
             ],
             device=self.device
         )
@@ -161,7 +167,7 @@ class Quadtree:
         Decodes a Morton code to get the bounding box of the block.
         """
         # Placeholder
-        return ROOT_BOUNDS
+        return self.root_bounds
 
     def find_neighbors(self, morton_code: int):
         """

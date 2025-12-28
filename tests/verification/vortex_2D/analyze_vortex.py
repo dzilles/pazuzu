@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
 
-from run_simulation import PazuzuSolver
+from pazuzu import PazuzuSolver
 from src.kernels.initial_conditions import init_isentropic_vortex
 
 def compute_l2_error(solver):
@@ -56,7 +56,7 @@ def compute_l2_error(solver):
     # Mapping [-1, 1] -> [x0, x0+h]. Scaling factor h/2.
     # J = (h/2) * (h/2) = h^2 / 4.
     
-    level = 3 # From run_simulation defaults (should extract from quadtree if variable)
+    level = 3 # From pazuzu defaults (should extract from quadtree if variable)
     grid_dim = 1 << level
     h = 2.0 / grid_dim
     detJ = (h / 2.0) * (h / 2.0)
