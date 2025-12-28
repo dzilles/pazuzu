@@ -1,104 +1,95 @@
-# Gemini Context: Warp-based 2D Euler CFD Solver
+# Pazuzu: Quadtree-AMR Flux Reconstruction Solver
 
-## Project Overview
-This project is a high-performance **2D Discontinuous Galerkin (DG) Euler Solver** written in Python, utilizing **Nvidia Warp** (`warp-lang`) for hardware acceleration (CPU/CUDA). It solves the compressible Euler equations on both structured (Cartesian) and unstructured meshes.
+**Branch:** `feature/quadtree-amr-fr`
 
-## Key Technologies
-*   **Language:** Python 3.13+
-*   **Compute Backend:** [Nvidia Warp](https://github.com/NVIDIA/warp) (CPU/GPU acceleration)
-*   **Numerical Methods:** 
-    *   Discontinuous Galerkin (DG) Spatial Discretization
-    *   SSP-RK3 Time Integration (Low-Storage Strong Stability Preserving Runge-Kutta 3)
-    *   Lax-Friedrichs / Rusanov Numerical Flux
-*   **I/O:** HDF5 (via `h5py`) and XMF for visualization (Paraview compatible).
-*   **Meshing:** Gmsh (`gmsh` Python API) support.
+This document outlines the architectural rewrite of Pazuzu from a generic unstructured DG solver to a specialized **Cartesian Quadtree** solver using **Flux Reconstruction (FR)** and **Block-Adaptive Mesh Refinement (AMR)**.
 
-## Project Structure
+---
+
+## 1. Core Architecture
+
+### **A. Mesh Topology: Cartesian Quadtree**
+* **Structure:** Hierarchical Quadtree using **Morton Encoding (Z-ordering)** for fast spatial indexing on GPU.
+* **Connectivity:** Implicit connectivity (parent/child relationships) replaces explicit neighbor lists.
+* **AMR Strategy:** Block-based refinement. A "Memory Pool" of fixed-size blocks (e.g., $8 \times 8$ or $16 \times 16$ cells) is pre-allocated on the GPU. Active leaf nodes map to slots in this pool.
+
+### **B. Numerical Method: Flux Reconstruction (FR)**
+* **Formulation:** Differential Form ($\frac{\partial f}{\partial x} + g_{corr}$).
+* **Basis:** Gauss-Lobatto-Legendre (GLL) nodal basis (Tensor Product).
+* **Correction Functions:** Radau or Legendre polynomials (e.g., Huynh's $g_2$) to recover high-order accuracy.
+* **Shock Capturing:** A hybrid **Sub-Cell Finite Volume** method. "Troubled" blocks switch from high-order FR to a robust FV update on the sub-grid nodes.
+
+### **C. Geometry: Immersed Boundary Method (IBM)**
+* **Representation:** Signed Distance Fields (SDF).
+* **Boundary Handling:** Ghost-cell forcing or cut-cell integration (depending on implementation phase). No body-fitted meshing required.
+
+---
+
+## 2. Project Structure
+
+The directory structure has been refactored to support the new paradigm.
 
 ```text
-/
-├── run_simulation.py       # Main entry point for running simulations
-├── config/                 # Configuration files
-│   └── default.yaml        # Default simulation parameters
+├── config/                 # YAML configs (now including AMR/IBM settings)
 ├── src/
-│   ├── core/               # Core infrastructure
-│   │   ├── driver.py       # Time integration (TimeIntegrator class)
-│   │   └── basis.py        # Polynomial basis definitions
-│   ├── geometry/           # Mesh handling
-│   │   └── mesh.py         # Mesh class (Cartesian & Unstructured)
-│   ├── physics/            # Physics solvers and equations
-│   │   ├── euler_2d.py     # Main Euler2DSolver class
-│   │   ├── equations.py    # Flux functions, state conversions
-│   │   └── initial_conditions.py
-│   ├── kernels/            # Warp kernels (compiled code)
-│   │   ├── common_kernels.py # RK stages, basic math
-│   │   └── euler_kernels.py  # Flux loops, boundary conditions
-│   └── io/                 # Input/Output
-│       └── data_writer.py  # HDF5/XMF writer
-└── tests/                  # Verification and testing
-    ├── run_tests.py        # Test runner
-    └── verification/       # Standard CFD test cases (Vortex, Channel, Cylinder)
-```
+│   ├── core/               
+│   │   ├── basis.py        # GLL nodes, weights, & Correction Polynomials
+│   │   ├── simulation_state.py # Memory Pool (MAX_BLOCKS allocation)
+│   │   └── config.py       # Config dataclasses
+│   ├── geometry/           
+│   │   ├── quadtree.py     # Morton encoding, Refinement/Coarsening logic
+│   │   └── ibm.py          # Level-set / SDF management
+│   ├── physics/            
+│   │   └── laws/           # Pure physics (Euler/NS Flux functions) - UNCHANGED
+│   ├── numerics/
+│   │   ├── flux_reconstruction.py # 1D Correction function derivatives
+│   │   └── time_steppers.py       # SSP-RK3 / RK4
+│   ├── kernels/            
+│   │   ├── fr_kernels.py   # Differential form FR update
+│   │   ├── amr_kernels.py  # Inter-block interpolation (Prolongation/Restriction)
+│   │   ├── fv_kernels.py   # Sub-cell Finite Volume update
+│   │   └── boundary_conditions.py # Standard Riemann/Slip BCs
+│   └── io/                 # HDF5 writers (Updated for Block-Structured data)
+└── tests/                  # Unit and verification tests
 
-## Setup & Environment
-The project relies on a pre-configured virtual environment located in `.venv`. You should use the python interpreter within this environment to ensure all dependencies are available.
+## 3. Implementation Phases
 
-**Dependencies (installed in `.venv`):**
-*   `warp-lang`
-*   `numpy`
-*   `h5py`
-*   `gmsh`
-*   `pyyaml`
-*   `matplotlib` (for visualization scripts)
-*   `pytest` (for testing)
+### Phase 1: The Foundation (Quadtree & Memory)
+*   **Goal:** Establish grid data structures without physics.
+*   **Key Tasks:**
+    *   [x] Implement Quadtree class (Morton codes, uniform refinement).
+    *   [x] Implement SimulationState with Memory Pool allocation (MAX_BLOCKS).
+    *   [x] Create mapping logic: Leaf Node -> Pool Index.
 
-## Usage
+### Phase 2: Flux Reconstruction (Static Grid)
+*   **Goal:** Run physics on a uniform, non-adaptive grid.
+*   **Key Tasks:**
+    *   [ ] Implement 1D Correction Polynomial derivatives in basis.py.
+    *   [ ] Write fr_kernels.py (Differential form: compute flux gradients + add correction).
+    *   [ ] Verify order of accuracy (Isentropic Vortex).
 
-### Running a Simulation
-To run a simulation, use the python interpreter from the virtual environment.
+### Phase 3: Adaptive Mesh Refinement (AMR)
+*   **Goal:** Enable dynamic hanging-node refinement.
+*   **Key Tasks:**
+    *   [ ] Implement P-Multigrid kernels (Interpolation between Coarse/Fine blocks).
+    *   [ ] Handle Mortar Interfaces (2:1 balance) in flux kernels.
+    *   [ ] Implement the Mark -> Refine -> Balance loop.
 
-```bash
-# Run with default configuration
-./.venv/bin/python run_simulation.py
+### Phase 4: Robustness (Sub-Cell FV)
+*   **Goal:** Shock capturing.
+*   **Key Tasks:**
+    *   [ ] Implement "Troubled Cell" detectors (Persson-Peraire).
+    *   [ ] Write fv_kernels.py (First-order Godunov on sub-grid).
+    *   [ ] Test on Sod Shock Tube and Double Mach Reflection.
 
-# Run with a specific configuration
-./.venv/bin/python run_simulation.py config/my_simulation.yaml
-```
+### Phase 5: Immersed Boundary Method (IBM)
+*   **Goal:** Complex geometry support.
+*   **Key Tasks:**
+    *   [ ] Load/Generate Signed Distance Fields (SDF).
+    *   [ ] Implement Ghost-Node forcing kernels.
 
-### Configuration (`.yaml`)
-Configuration files control all aspects of the simulation. Key sections:
-*   **`simulation`**: Time stepping (`t_final`, `cfl`), output settings (`output_dir`, `log_frequency`), and device selection (`cpu` or `cuda`).
-*   **`mesh`**: 
-    *   `type: cartesian` (needs `nx`, `ny`, bounds)
-    *   `type: unstructured` (needs `filename` to a `.msh` file)
-*   **`numerical`**: `polynomial_degree` for the DG scheme.
-*   **`initial_condition`**: `name` (e.g., "vortex", "uniform").
-
-### Visualization
-Results are saved as `.h5` files with accompanying `.xmf` descriptors in the `output_dir`. These can be opened directly in **Paraview**.
-
-There is also a helper script:
-```bash
-./.venv/bin/python scripts/visualize.py --file data/results.h5
-```
-
-## Development & Testing
-
-### Running Tests
-The project includes a test suite in the `tests/` directory. You should use `pytest` from the virtual environment.
-
-```bash
-# Run all tests (unit + verification)
-./.venv/bin/python -m pytest
-
-# Run a specific verification test
-./.venv/bin/python tests/verification/channel_flow/verify.py
-```
-
-### Verification Cases
-Specific physics verification cases (like the Isentropic Vortex or Cylinder Flow) are located in `tests/verification/`. These usually have their own generation and verification scripts (e.g., `generate_mesh.py`, `verify.py`).
-
-## Coding Conventions
-*   **Warp Usage:** Compute-heavy loops should be implemented as Warp kernels in `src/kernels/` and launched from the solver classes.
-*   **Type Safety:** Use Warp's type system (`wp.array`, `wp.vec2`, etc.) within kernels.
-*   **I/O:** Heavy data should be written to HDF5. Text output should be minimal (logging).
+## 4. Developer Guidelines
+*   **Memory Management:** Never allocate arrays per-element. Always allocate (MAX_BLOCKS, ...) at startup.
+*   **Kernel Design:** Kernels should launch over num_active_blocks. Use the active_block_indices map to access the global memory pool.
+*   **Testing:** Run pytest frequently. Each phase is designed to be independently verifiable.
+*   **Legacy Code:** The old unstructured mesh.py and solver_builder.py are deprecated and should be removed in this branch.

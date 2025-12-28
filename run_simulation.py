@@ -1,183 +1,141 @@
-from src.geometry.mesh import Mesh
-from src.core.basis import Basis
-from src.core.solver_builder import SolverBuilder
-from src.numerics.time_steppers import RK4Stepper
-from src.core.time_integrator import TimeIntegrator
-from src.io.data_writer import HDF5Writer, HDF5Reader
-from src.physics.initial_conditions import get_ic_function
-from src.core.boundary_condition_manager import BoundaryConditionManager
-import src.physics.laws.common as common_laws
-
-import numpy as np
 import warp as wp
-import os
-import argparse
-import sys
-import re
+import numpy as np
+from src.core.config import PazuzuConfig, SolverType
+from src.core.simulation_state import SimulationState
+from src.core.basis import Basis
+from src.geometry.quadtree import Quadtree
+from src.core.time_integrator import TimeIntegrator
+from src.physics.laws.euler import EquationParams32
+from src.kernels.fr_kernels import compute_fr_update
+from src.kernels.structs import EquationParams32 as ParamsStruct
+from src.kernels.initial_conditions import init_isentropic_vortex
 
-def get_unique_filename(path):
-    """
-    Returns a unique filename by appending _1, _2, etc. if the file exists.
-    If the filename already ends in _N, it increments N.
-    """
-    if not os.path.exists(path):
-        return path
+class PazuzuSolver:
+    def __init__(self, config_path: str):
+        self.config = PazuzuConfig.from_yaml(config_path)
+        self.device = self.config.simulation.device
+        wp.init()
         
-    directory = os.path.dirname(path)
-    filename = os.path.basename(path)
-    base, ext = os.path.splitext(filename)
-    
-    # Pattern to match trailing _<number>
-    match = re.search(r'_(\d+)$', base)
-    if match:
-        prefix = base[:match.start()]
-        counter = int(match.group(1))
-    else:
-        prefix = base
-        counter = 0
+        # 1. Initialize Basis
+        self.basis = Basis(
+            polynomial_degree=self.config.numerics.polynomial_order,
+            device=self.device
+        )
         
-    while True:
-        counter += 1
-        new_filename = f"{prefix}_{counter}{ext}"
-        new_path = os.path.join(directory, new_filename)
-        if not os.path.exists(new_path):
-            return new_path
-
-def main(config_path):
-    from src.core.config import PazuzuConfig
-    
-    print(f"Loading configuration from {config_path}...")
-    try:
-        cfg = PazuzuConfig.from_yaml(config_path)
-    except Exception as e:
-        print(f"[Error] Configuration Error:\n{e}")
-        sys.exit(1)
-
-    print(f"[Success] Configuration '{cfg.case_name}' loaded successfully.")
-    
-    # Get the directory of the config file to resolve relative paths
-    config_dir = os.path.dirname(os.path.abspath(config_path))
-    
-    # --- Mesh Setup ---
-    mesh_path = cfg.mesh_file
-    if not os.path.isabs(mesh_path):
-        mesh_path = os.path.join(config_dir, mesh_path)
+        # 2. Initialize State
+        self.state = SimulationState(
+            Np=self.basis.Np,
+            dtype=wp.vec4,
+            device=self.device,
+            max_blocks=self.config.amr.max_blocks,
+            scalar_dtype=wp.float32 # Assume single precision for now
+        )
         
-    device = cfg.simulation.device
-    print(f"Initializing Mesh from {mesh_path} on {device}...")
-    if not os.path.exists(mesh_path):
-         raise FileNotFoundError(f"Mesh file not found: {mesh_path}")
-    
-    mesh = Mesh(filename=mesh_path, device=device)
-
-    # --- Periodic BC Setup ---
-    print("Applying Periodic Boundary Conditions (if any)...")
-    BoundaryConditionManager.apply_periodic_conditions(mesh, cfg)
-
-    # --- Basis Setup ---
-    dtype_warp = wp.float64 if cfg.numerics.precision == "double" else wp.float32
-    print(f"Initializing Basis (Poly Degree N={cfg.numerics.polynomial_order}, Precision={cfg.numerics.precision})...")
-    basis = Basis(
-        cfg.numerics.polynomial_order, 
-        device=cfg.simulation.device, 
-        dtype=dtype_warp,
-        over_integration_order=cfg.numerics.over_integration_order
-    )
-
-    # --- Solver Setup ---
-    ic_cfg = cfg.initial_condition
-    ic_name = ic_cfg if isinstance(ic_cfg, str) else ic_cfg.name
-    
-    # Use SolverBuilder to create the solver instance
-    builder = SolverBuilder(mesh, basis, config=cfg)
-    solver = builder.build()
-    
-    # Initialize Solver State (Allocates memory)
-    # We always run default initialization first to setup the structure
-    print(f"Initializing Solver with IC: {ic_name}...")
-    ic_func = get_ic_function(ic_name)
-    solver.initialize(ic_func)
-
-    # --- Restart / Continue Logic ---
-    restart_file = cfg.simulation.restart_from
-    if restart_file:
-        if not os.path.isabs(restart_file):
-            restart_file = os.path.join(config_dir, restart_file)
-            
-        print(f"Restarting from checkpoint: {restart_file}")
+        # 3. Initialize Geometry
+        self.quadtree = Quadtree(
+            device=self.device, 
+            max_blocks=self.config.amr.max_blocks
+        )
         
-        # Load Checkpoint
-        chk = HDF5Reader.load_checkpoint(restart_file)
-        time = chk["time"]
-        step = chk["step"]
-        q_prim_flat = chk["q_prim_flat"] # (4, TotalPoints)
+        # 4. Initialize Time Integrator
+        self.integrator = TimeIntegrator(self.state)
         
-        # Validate Shape
-        expected_points = mesh.num_elements * basis.Np
-        if q_prim_flat.shape[1] != expected_points:
-            raise ValueError(f"Restart file geometry mismatch. Expected {expected_points} points, got {q_prim_flat.shape[1]}. Ensure polynomial order matches.")
-            
-        # Convert to Conservative
-        # Update global gamma for common laws to ensure correct conversion
-        common_laws.gamma = cfg.physics.gamma
+        # 5. Physics Parameters
+        self._init_physics()
         
-        q_cons_flat = common_laws.primitive_to_conservative(q_prim_flat)
-        
-        # Reshape: (4, NumElements * Np) -> (4, NumElements, Np) -> (NumElements, Np, 4)
-        q_cons = q_cons_flat.reshape(4, mesh.num_elements, basis.Np).transpose(1, 2, 0)
-        
-        # Override State
-        solver.state.q = wp.array(q_cons, dtype=solver.state.dtype, device=solver.device)
-        solver.state.t = time
-        solver.state.step = step
-        
-        print(f"Resumed state at t={time:.4f}, step={step}")
+        # 6. Initial Condition (Mesh Generation)
+        self._init_mesh()
+        self._apply_initial_condition()
 
-    # --- Output Directory ---
-    output_dir = cfg.io.output_dir
-    if not os.path.isabs(output_dir):
-        output_dir = os.path.join(config_dir, output_dir)
+    def _init_physics(self):
+        # Convert config physics to Warp struct
+        p = self.config.physics
         
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
-    output_file = os.path.join(output_dir, "results.h5")
-    
-    # Ensure unique output filename to avoid overwriting or conflict with restart file
-    output_file = get_unique_filename(output_file)
-    
-    writer = HDF5Writer(
-        output_file, 
-        mesh,
-        basis=solver.basis,
-        node_coords=(solver.mesh.x_host, solver.mesh.y_host)
-    )
+        params_np = np.zeros(1, dtype=ParamsStruct.numpy_dtype())
+        params_np[0]['gamma'] = p.gamma
+        params_np[0]['gas_constant'] = p.gas_constant
+        params_np[0]['rho_floor'] = p.rho_floor
+        params_np[0]['p_floor'] = p.p_floor
+        params_np[0]['half'] = 0.5
+        params_np[0]['one'] = 1.0
+        # ... others
+        
+        self.params = wp.array(params_np, dtype=ParamsStruct, device=self.device)
 
-    # Save Initial/Restart State
-    print(f"Saving start state to {os.path.basename(output_file)} (Step {solver.state.step})...")
-    writer.write_step(solver.state.step, solver.state.t, solver.state.numpy())
+    def _init_mesh(self):
+        # Uniform Refinement to start
+        # Use a fixed level for now (Phase 2)
+        # We could read from config if added. Assuming Level 3 (8x8) for test.
+        initial_level = 3
+        self.quadtree.uniform_refine(initial_level, self.state, self.basis)
 
-    # --- Run Simulation ---
-    print(f"Starting simulation on device '{device}'...")
-    
-    # Instantiate Stepper and Driver
-    stepper = RK4Stepper(device=device)
-    driver = TimeIntegrator(solver, stepper)
-    # driver.solve now retrieves t_final, CFL, write_interval from solver.config
-    driver.solve(writer=writer, max_steps=cfg.simulation.max_steps)
-    
-    print("Simulation finished.")
-    print(f"Results saved to {output_dir}/results.h5 and .xmf")
+    def _apply_initial_condition(self):
+        if isinstance(self.config.initial_condition, str) and self.config.initial_condition == "vortex":
+            print("Applying Isentropic Vortex IC...")
+            wp.launch(
+                kernel=init_isentropic_vortex,
+                dim=(self.quadtree.num_blocks, self.basis.Np),
+                inputs=[
+                    self.state.x,
+                    self.state.y,
+                    self.state.q,
+                    self.state.active_block_indices,
+                    self.quadtree.num_blocks,
+                    self.params,
+                    0.0
+                ],
+                device=self.device
+            )
+        else:
+            print(f"Warning: Unknown IC '{self.config.initial_condition}'. State zeroed.")
 
+    def compute_rhs(self, t, q_in, rhs_out):
+        """
+        Callback for the Time Integrator.
+        """
+        # Zero RHS? The kernel overwrites, but accumulation might be needed if multiple physics?
+        # FR Kernel overwrites.
+        
+        wp.launch(
+            kernel=compute_fr_update,
+            dim=self.quadtree.num_blocks * self.basis.Np,
+            inputs=[
+                q_in,
+                self.state.active_block_indices,
+                self.state.neighbors,
+                self.quadtree.num_blocks,
+                rhs_out,
+                self.basis.nodes_1d,
+                self.basis.D1D,
+                self.basis.dg_L,
+                self.basis.dg_R,
+                self.quadtree.root_bounds_wp,
+                3, # Fixed Level for now
+                self.params,
+                t
+            ],
+            device=self.device
+        )
+
+    def run(self):
+        print(f"Starting simulation: {self.config.case_name}")
+        t = 0.0
+        dt = 0.001 # Fixed DT for now
+        
+        while t < self.config.simulation.t_final:
+            self.integrator.step_ssp_rk3(
+                self.compute_rhs,
+                dt,
+                t,
+                self.quadtree.num_blocks
+            )
+            t += dt
+            print(f"Step {self.state.step}, Time {t:.4f}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="2D Discontinuous Galerkin Euler Solver with Nvidia Warp")
-    parser.add_argument("config", type=str, nargs='?', default="config/default.yaml", help="Path to the YAML configuration file.")
-    
-    args = parser.parse_args()
-    
-    if not os.path.exists(args.config):
-        print(f"Error: Config file '{args.config}' not found.")
-        sys.exit(1)
-        
-    main(args.config)
+    import sys
+    if len(sys.argv) > 1:
+        solver = PazuzuSolver(sys.argv[1])
+        solver.run()
+    else:
+        print("Usage: python run_simulation.py <config.yaml>")

@@ -60,10 +60,16 @@ class InitialConditionConfig(BaseModel):
     name: str = Field(..., description="Name of the initial condition")
     params: Dict[str, Any] = Field(default_factory=dict, description="Parameters for the initial condition")
 
+class AmrConfig(BaseModel):
+    max_blocks: int = Field(default=10000, gt=0, description="Maximum number of blocks in the memory pool")
+    max_depth: int = Field(default=5, ge=0, description="Maximum refinement depth")
+    refinement_threshold: float = Field(default=0.1, gt=0.0, description="Threshold for refinement/coarsening")
+
 class PazuzuConfig(BaseModel):
     case_name: str = Field(default="simulation", description="Name of the simulation case")
     solver_type: SolverType = Field(default=SolverType.EULER_2D, description="Type of solver to use")
-    mesh_file: str = Field(..., description="Path to the mesh file (.msh)")
+    # mesh_file: str = Field(..., description="Path to the mesh file (.msh)") # Removed in favor of AMR
+    amr: AmrConfig = Field(default_factory=AmrConfig, description="AMR configuration")
     initial_condition: Union[str, InitialConditionConfig] = Field(default="vortex", description="Initial condition configuration")
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
     numerics: NumericsConfig = Field(default_factory=NumericsConfig)

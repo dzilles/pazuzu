@@ -67,6 +67,11 @@ class Basis:
         # Create LIFT Matrix (includes inverse mass matrix application)
         LIFT = self._create_lift_matrix(face_nodes, M_face, inv_mass_matrix_diag)
         
+        # --- FR Correction Derivatives (1D) ---
+        # Used for Tensor-Product Flux Reconstruction update.
+        # Recovers DG if using Radau correction polynomials.
+        dg_L, dg_R = self._compute_correction_derivatives(nodes_1d)
+        
         # Transfer data to Warp arrays (cast to target dtype here)
         vec2_type = wp.vec2d if dtype == wp.float64 else wp.vec2
         
@@ -79,6 +84,9 @@ class Basis:
         self.Dr = wp.array(Dr, dtype=dtype, device=device)
         self.Ds = wp.array(Ds, dtype=dtype, device=device)
         self.LIFT = wp.array(LIFT, dtype=dtype, device=device)
+        
+        self.dg_L = wp.array(dg_L, dtype=dtype, device=device)
+        self.dg_R = wp.array(dg_R, dtype=dtype, device=device)
 
         # --- Over-Integration Setup (for non-linear volume terms) ---
         # Increase quadrature degree to integrate non-linear fluxes more accurately.
@@ -116,6 +124,36 @@ class Basis:
         
         # Filter Matrix (lazy initialization)
         self.filter_matrix = None
+
+    def _compute_correction_derivatives(self, nodes):
+        """
+        Computes the derivatives of the Radau correction polynomials at the solution nodes.
+        These are used for the Flux Reconstruction (FR) approach to recover DG.
+        
+        g_L(xi) = (-1)^N / 2 * (L_N(xi) - L_{N+1}(xi))
+        g_R(xi) = 1 / 2 * (L_N(xi) + L_{N+1}(xi))
+        
+        We compute g'_L and g'_R.
+        """
+        N = self.N
+        # Legendre Polynomials and derivatives
+        Ln = legendre(N)
+        Lnp1 = legendre(N + 1)
+        
+        dLn = Ln.deriv()
+        dLnp1 = Lnp1.deriv()
+        
+        # Evaluate at nodes
+        val_dLn = dLn(nodes)
+        val_dLnp1 = dLnp1(nodes)
+        
+        # Factor for g_L: (-1)^N / 2
+        factor_L = ((-1)**N) / 2.0
+        
+        dg_L = factor_L * (val_dLn - val_dLnp1)
+        dg_R = 0.5 * (val_dLn + val_dLnp1)
+        
+        return dg_L, dg_R
 
     def _gauss_quadrature(self, Nq):
         """ Computes Legendre-Gauss nodes and weights (Nq points). """

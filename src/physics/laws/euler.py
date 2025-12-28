@@ -1,5 +1,6 @@
 import warp as wp
 from src.kernels import boundary_conditions as bc
+from src.kernels.structs import EquationParams32
 from typing import Any
 
 @wp.func
@@ -42,3 +43,41 @@ def flux_y(q: Any, params: Any):
     v = q[2] / rho
     
     return bc.make_vec4_generic(q[2], q[1]*v, q[2]*v + p, (q[3] + p)*v)
+
+@wp.func
+def rusanov_flux(q_L: Any, q_R: Any, nx: float, ny: float, params: Any):
+    """
+    Computes the Rusanov (LLF) numerical flux at an interface with normal (nx, ny).
+    """
+    # Type promotion helper
+    zero = q_L[0] - q_L[0]
+
+    # Fluxes
+    F_L = flux_x(q_L, params)
+    G_L = flux_y(q_L, params)
+    Fn_L = F_L * nx + G_L * ny
+    
+    F_R = flux_x(q_R, params)
+    G_R = flux_y(q_R, params)
+    Fn_R = F_R * nx + G_R * ny
+    
+    # Wave Speeds
+    # L
+    rho_L = wp.max(q_L[0], zero + params.rho_floor)
+    p_L = pressure(q_L, params)
+    c_L = wp.sqrt(params.gamma * p_L / rho_L)
+    vn_L = (q_L[1] * nx + q_L[2] * ny) / rho_L
+    max_ev_L = wp.abs(vn_L) + c_L
+    
+    # R
+    rho_R = wp.max(q_R[0], zero + params.rho_floor)
+    p_R = pressure(q_R, params)
+    c_R = wp.sqrt(params.gamma * p_R / rho_R)
+    vn_R = (q_R[1] * nx + q_R[2] * ny) / rho_R
+    max_ev_R = wp.abs(vn_R) + c_R
+    
+    lambda_max = wp.max(max_ev_L, max_ev_R)
+    
+    # Rusanov Formula
+    # F* = 0.5 * (Fn_L + Fn_R) - 0.5 * lambda * (q_R - q_L)
+    return 0.5 * (Fn_L + Fn_R) - 0.5 * lambda_max * (q_R - q_L)
