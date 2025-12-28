@@ -21,18 +21,19 @@ mesh:
   periodic_y: true
 
 io:
-  write_interval: 50
+  write_interval: 500
   output_dir: "output"
 
 simulation:
-  t_final: 1
-  device: "cuda"
+  t_final: 10
+  device: "cpu"
 
 amr:
   max_blocks: 20000
-  max_depth: 7
-  initial_depth: 7
+  max_depth: 5
+  initial_depth: 5
 
 numerics:
   polynomial_order: 3
   precision: "double"
+  cfl: 0.1

@@ -10,6 +10,7 @@ from src.physics.laws.euler import EquationParams32
 from src.kernels.fr_kernels import compute_fr_update
 from src.kernels.structs import EquationParams32 as ParamsStruct
 from src.kernels.initial_conditions import init_isentropic_vortex
+from src.kernels.common_kernels import check_nan_indirect
 from src.io.data_writer import HDF5Writer
 
 class PazuzuSolver:
@@ -64,6 +65,9 @@ class PazuzuSolver:
             os.makedirs(output_dir)
             
         self.writer = HDF5Writer(os.path.join(output_dir, "results.h5"), self)
+        
+        # 8. NaN Detection Flag
+        self.nan_flag = wp.zeros(1, dtype=wp.int32, device=self.device)
         
         # Write Initial State (Step 0)
         print("Saving initial state...")
@@ -147,7 +151,7 @@ class PazuzuSolver:
                 self.basis.dg_L,
                 self.basis.dg_R,
                 self.quadtree.root_bounds_wp,
-                3, # Fixed Level for now
+                self.config.amr.initial_depth,
                 self.params,
                 t
             ],
@@ -170,11 +174,26 @@ class PazuzuSolver:
                 t,
                 self.quadtree.num_blocks
             )
+            
             t += dt
             self.state.step += 1
             
             if self.state.step % log_freq == 0:
-                print(f"Step {self.state.step}, Time {t:.4f}")
+                # NaN Check
+                self.nan_flag.zero_()
+                wp.launch(
+                    kernel=check_nan_indirect,
+                    dim=self.quadtree.num_blocks * self.basis.Np,
+                    inputs=[self.state.q, self.state.active_block_indices, self.nan_flag],
+                    device=self.device
+                )
+                
+                if self.nan_flag.numpy()[0] > 0:
+                    print(f"FATAL: NaN detected at step {self.state.step}, t={t:.6f}")
+                    self.writer.write_step(self.state.step, t)
+                    break
+
+                print(f"Step {self.state.step}, Time {t:.4f}, dt {dt:.6f}")
                 self.writer.write_step(self.state.step, t)
 
 if __name__ == "__main__":

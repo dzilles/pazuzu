@@ -123,6 +123,26 @@ def check_nan(
             wp.atomic_add(has_nan, 0, 1)
 
 @wp.kernel
+def check_nan_indirect(
+    q: wp.array(dtype=Any, ndim=2),
+    active_indices: wp.array(dtype=int),
+    has_nan: wp.array(dtype=wp.int32, ndim=1)
+):
+    tid = wp.tid()
+    Np = q.shape[1]
+    
+    block_idx = tid // Np
+    node_idx = tid % Np
+    
+    pool_idx = active_indices[block_idx]
+    
+    val = q[pool_idx, node_idx]
+    
+    for c in range(4):
+        if wp.isnan(val[c]) or wp.isinf(val[c]):
+            wp.atomic_add(has_nan, 0, 1)
+
+@wp.kernel
 def check_nan_vec2(
     q: wp.array(dtype=Any, ndim=2),
     has_nan: wp.array(dtype=wp.int32, ndim=1)
