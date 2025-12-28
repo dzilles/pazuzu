@@ -77,8 +77,6 @@ def set_vec4_generic(v: wp.vec4, i: int, val: wp.float32):
 def set_vec4_generic(v: wp.vec4d, i: int, val: wp.float64):
     res = v
     if i == 0: res = wp.vec4d(val, v[1], v[2], v[3])
-    elif i == 1: res = wp.vec4d(val, v[1], v[2], v[3]) # Should be res = wp.vec4d(v[0], val, v[2], v[3]) but I will fix later if needed, wait, I see a copy-paste error in my previous implementation too.
-    # Actually let's fix it properly now
     elif i == 1: res = wp.vec4d(v[0], val, v[2], v[3])
     elif i == 2: res = wp.vec4d(v[0], v[1], val, v[3])
     elif i == 3: res = wp.vec4d(v[0], v[1], v[2], val)

@@ -54,6 +54,7 @@ class SimulationConfig(BaseModel):
     ramp_time: float = Field(default=1.0, description="Ramp time for boundary conditions")
     device: str = Field(default="cpu", description="Compute device (cpu or cuda)")
     max_steps: Optional[int] = Field(default=None, description="Maximum number of time steps")
+    restart_from: Optional[str] = Field(default=None, description="Path to HDF5 file to restart from")
 
 class InitialConditionConfig(BaseModel):
     name: str = Field(..., description="Name of the initial condition")

@@ -238,9 +238,9 @@ class BoundaryConditionManager:
             return bc.BC_PERIODIC
         elif bc_type in ["outflow", "extrapolation"]: 
             return bc.BC_EXTRAPOLATION
-        elif bc_type == "inlet": 
+        elif bc_type == "inlet" or bc_type == "characteristic_inlet": 
             return bc.BC_INLET
-        elif bc_type == "outlet": 
+        elif bc_type == "outlet" or bc_type == "characteristic_outlet": 
             return bc.BC_OUTLET
         elif bc_type == "dmr_exact":
             return bc.BC_DOUBLE_MACH_EXACT

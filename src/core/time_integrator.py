@@ -53,8 +53,6 @@ class TimeIntegrator:
         
         # Use state from solver
         state = self.solver.state
-        state.t = 0.0
-        state.step = 0
         
         t = state.t
         step = state.step

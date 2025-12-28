@@ -39,9 +39,9 @@ class RK4Stepper(TimeStepper):
         q_temp = state.q_temp
         
         if self.use_stream:
-            with self.stream:
+            with wp.ScopedStream(self.stream):
                 self._rk4_logic(solver, t, dt, dt_warp, dtype, q, rhs, q_old, q_temp)
-            self.stream.synchronize()
+            wp.synchronize_stream(self.stream)
         else:
             self._rk4_logic(solver, t, dt, dt_warp, dtype, q, rhs, q_old, q_temp)
             wp.synchronize()

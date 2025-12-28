@@ -197,3 +197,80 @@ class HDF5Writer:
             f.write('  </Grid>\n')
             f.write(' </Domain>\n')
             f.write('</Xdmf>\n')
+
+
+class HDF5Reader:
+    """
+    Handles reading simulation state from HDF5 files for restarting.
+    """
+    @staticmethod
+    def load_checkpoint(filename, step=None):
+        """
+        Loads the simulation state from an HDF5 checkpoint.
+        
+        Args:
+            filename (str): Path to the .h5 file.
+            step (int, optional): Specific step to load. If None, loads the last available step.
+            
+        Returns:
+            dict: {
+                "time": float,
+                "step": int,
+                "q_prim_flat": np.array (shape (4, TotalPoints))
+            }
+        """
+        if not os.path.exists(filename):
+            raise FileNotFoundError(f"Checkpoint file not found: {filename}")
+            
+        with h5py.File(filename, 'r') as f:
+            if "data" not in f:
+                raise ValueError(f"Invalid checkpoint file structure: 'data' group missing in {filename}")
+
+            # Find step
+            if step is None:
+                steps = []
+                for k in f['data'].keys():
+                    if k.startswith('step_'):
+                        try:
+                            steps.append(int(k.split('_')[1]))
+                        except ValueError:
+                            pass
+                
+                if not steps:
+                    raise ValueError("No time steps found in checkpoint file.")
+                step = max(steps)
+            
+            grp_name = f"step_{step}"
+            grp_path = f"data/{grp_name}"
+            
+            if grp_path not in f:
+                 raise ValueError(f"Step {step} not found in {filename}")
+            
+            grp = f[grp_path]
+            time = grp.attrs.get("time", 0.0)
+            loaded_step = grp.attrs.get("step", step)
+            
+            # Read variables
+            # Assuming high-order storage: (TotalPoints,) for each variable
+            if "rho" not in grp or "u" not in grp or "v" not in grp or "p" not in grp:
+                raise ValueError(f"Missing flow variables (rho, u, v, p) in step {step}")
+
+            rho = grp["rho"][:]
+            u = grp["u"][:]
+            v = grp["v"][:]
+            p = grp["p"][:]
+            
+            # Stack: (4, TotalPoints)
+            # Ensure they are 1D flat arrays
+            prim_flat = np.vstack([
+                rho.flatten(), 
+                u.flatten(), 
+                v.flatten(), 
+                p.flatten()
+            ])
+            
+            return {
+                "time": time,
+                "step": loaded_step,
+                "q_prim_flat": prim_flat
+            }

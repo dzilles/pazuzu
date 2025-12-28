@@ -401,9 +401,8 @@ class Mesh:
                 print(f"Warning: Face {face_key} shared by {len(connections)} elements. Mesh might be non-manifold.")
         
         # Calculate approximate grid size for dt estimation
-        # We take the sqrt of the average element area
-        # (This is a rough heuristic, max_wave_speed kernel handles local speed, but we need a length scale)
-        total_area = 0.0
+        # We take the sqrt of the minimum element area to be conservative for CFL
+        min_area = float('inf')
         for i in range(self.num_elements):
             v = self.vertices_host[i]
             # Area using Shoelace formula / cross product for convex quads
@@ -411,10 +410,10 @@ class Mesh:
             d1 = v[2] - v[0]
             d2 = v[3] - v[1]
             area = 0.5 * np.abs(d1[0]*d2[1] - d1[1]*d2[0])
-            total_area += area
+            if area < min_area:
+                min_area = area
             
-        avg_area = total_area / self.num_elements
-        self.dx = np.sqrt(avg_area) # Characteristic length
+        self.dx = np.sqrt(min_area) # Characteristic length
         print(f"  Approximate element size (dx): {self.dx:.4e}")
 
     def apply_periodic_condition(self, tag1, tag2, axis, tol=1e-5):

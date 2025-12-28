@@ -23,7 +23,7 @@ io:
 simulation:
   t_final: 0.2
   ramp_time: 0.0
-  device: "cpu"
+  device: "cuda"
 
 boundaries:
   "Exact":
