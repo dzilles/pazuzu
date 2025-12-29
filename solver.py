@@ -7,9 +7,8 @@ from src.core.simulation_state import SimulationState
 from src.core.basis import Basis
 from src.geometry.quadtree import Quadtree
 from src.core.time_integrator import TimeIntegrator
-from src.physics.laws.euler import EquationParams32
+from src.kernels.structs import EquationParams32, EquationParams64
 from src.kernels.fr_kernels import compute_fr_update
-from src.kernels.structs import EquationParams32 as ParamsStruct
 from src.kernels.initial_conditions import init_isentropic_vortex
 from src.kernels.common_kernels import check_nan_indirect
 from src.io.data_writer import HDF5Writer
@@ -23,20 +22,31 @@ class PazuzuSolver:
             
         self.device = self.config.simulation.device
         wp.init()
+
+        # 0. Set Precision
+        if self.config.numerics.precision == "double":
+            self.scalar_dtype = wp.float64
+            self.state_dtype = wp.vec4d
+            self.params_struct = EquationParams64
+        else:
+            self.scalar_dtype = wp.float32
+            self.state_dtype = wp.vec4
+            self.params_struct = EquationParams32
         
         # 1. Initialize Basis
         self.basis = Basis(
             polynomial_degree=self.config.numerics.polynomial_order,
-            device=self.device
+            device=self.device,
+            dtype=self.scalar_dtype
         )
         
         # 2. Initialize State
         self.state = SimulationState(
             Np=self.basis.Np,
-            dtype=wp.vec4,
+            dtype=self.state_dtype,
             device=self.device,
             max_blocks=self.config.amr.max_blocks,
-            scalar_dtype=wp.float32 # Assume single precision for now
+            scalar_dtype=self.scalar_dtype
         )
         
         # 3. Initialize Geometry
@@ -51,7 +61,8 @@ class PazuzuSolver:
             max_blocks=self.config.amr.max_blocks,
             root_bounds=bounds,
             periodic_x=self.config.mesh.periodic_x,
-            periodic_y=self.config.mesh.periodic_y
+            periodic_y=self.config.mesh.periodic_y,
+            dtype=self.scalar_dtype
         )
         
         # 4. Initialize Time Integrator
@@ -81,7 +92,7 @@ class PazuzuSolver:
     def _init_physics(self):
         # Create the struct instance directly, NOT a wp.array
         p = self.config.physics
-        self.params = ParamsStruct()
+        self.params = self.params_struct()
         
         # Populate fields
         self.params.gamma = float(p.gamma)
@@ -135,9 +146,9 @@ class PazuzuSolver:
                     self.state.active_block_indices,
                     self.quadtree.num_blocks,
                     self.params,
-                    0.0,
-                    float(beta),
-                    float(radius)
+                    self.scalar_dtype(0.0),
+                    self.scalar_dtype(beta),
+                    self.scalar_dtype(radius)
                 ],
                 device=self.device
             )
@@ -167,7 +178,7 @@ class PazuzuSolver:
                 self.quadtree.root_bounds_wp,
                 self.config.amr.initial_depth,
                 self.params,
-                t
+                self.scalar_dtype(t)
             ],
             device=self.device
         )

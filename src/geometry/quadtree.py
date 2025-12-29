@@ -26,13 +26,14 @@ class Quadtree:
     
     Manages the grid hierarchy and mapping to the memory pool.
     """
-    def __init__(self, device: str = "cpu", max_blocks: int = 10000, root_bounds: Tuple[float, float, float, float] = (-1.0, -1.0, 1.0, 1.0), periodic_x: bool = False, periodic_y: bool = False):
+    def __init__(self, device: str = "cpu", max_blocks: int = 10000, root_bounds: Tuple[float, float, float, float] = (-1.0, -1.0, 1.0, 1.0), periodic_x: bool = False, periodic_y: bool = False, dtype=wp.float32):
         self.device = device
         self.max_blocks = max_blocks
         self.num_blocks = 0
         self.root_bounds = root_bounds
         self.periodic_x = periodic_x
         self.periodic_y = periodic_y
+        self.dtype = dtype
         
         # Morton codes for blocks resident in the pool.
         # Index i in this array corresponds to block i in SimulationState.
@@ -46,7 +47,8 @@ class Quadtree:
         self.map_values = wp.zeros(self.map_capacity, dtype=wp.int32, device=device)
         
         # Bounds as Warp vector
-        self.root_bounds_wp = wp.vec4(root_bounds[0], root_bounds[1], root_bounds[2], root_bounds[3])
+        vec4_type = wp.vec4d if dtype == wp.float64 else wp.vec4
+        self.root_bounds_wp = vec4_type(root_bounds[0], root_bounds[1], root_bounds[2], root_bounds[3])
 
     def uniform_refine(self, level: int, state, basis):
         """

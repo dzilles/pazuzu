@@ -1,17 +1,18 @@
 import warp as wp
-from src.kernels.structs import EquationParams32
+from src.kernels import boundary_conditions as bc
+from typing import Any
 
 @wp.kernel
 def init_isentropic_vortex(
-    x: wp.array(dtype=float, ndim=2),
-    y: wp.array(dtype=float, ndim=2),
-    q: wp.array(dtype=wp.vec4, ndim=2),
+    x: wp.array(dtype=Any, ndim=2),
+    y: wp.array(dtype=Any, ndim=2),
+    q: wp.array(dtype=Any, ndim=2),
     active_indices: wp.array(dtype=int),
     num_active: int,
-    params: EquationParams32,
-    t: float,
-    beta: float,
-    radius: float
+    params: Any,
+    t: Any,
+    beta: Any,
+    radius: Any
 ):
     # Launch dimensions: (num_active, Np)
     block_idx, node_idx = wp.tid()
@@ -42,8 +43,14 @@ def init_isentropic_vortex(
     # rho = T^(1/(gamma-1))
     # p = rho^gamma
     
-    S_2pi = beta / (2.0 * 3.14159265359)
-    exp_term = wp.exp(0.5 * (1.0 - r2_scaled))
+    template = beta
+    one = bc.get_one_generic(template)
+    half = bc.get_half_generic(template)
+    two = one + one
+    pi = bc.get_any_generic(template, 3.141592653589793)
+
+    S_2pi = beta / (two * pi)
+    exp_term = wp.exp(half * (one - r2_scaled))
     
     # Scale perturbation by radius to keep beta as peak velocity
     du = -S_2pi * (dy / radius) * exp_term
@@ -53,12 +60,12 @@ def init_isentropic_vortex(
     v = params.v_inf + dv
     
     # Correct Isentropic Relation: T = 1 - ((gamma-1)/gamma) * (S^2/8pi^2) * exp(...)
-    T_sub = (gamma - 1.0) / gamma * 0.5 * (S_2pi * S_2pi) * wp.exp(1.0 - r2_scaled)
-    T = 1.0 - T_sub
+    T_sub = (gamma - one) / gamma * half * (S_2pi * S_2pi) * wp.exp(one - r2_scaled)
+    T = one - T_sub
     
-    rho = wp.pow(T, 1.0 / (gamma - 1.0))
+    rho = wp.pow(T, one / (gamma - one))
     p = wp.pow(rho, gamma)
     
-    E = p / (gamma - 1.0) + 0.5 * rho * (u*u + v*v)
+    E = p / (gamma - one) + half * rho * (u*u + v*v)
     
-    q[pool_idx, node_idx] = wp.vec4(rho, rho*u, rho*v, E)
+    q[pool_idx, node_idx] = bc.make_vec4_generic(rho, rho*u, rho*v, E)

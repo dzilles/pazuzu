@@ -1,4 +1,5 @@
 import warp as wp
+from typing import Any
 
 @wp.func
 def part1by1(n: int):
@@ -29,14 +30,16 @@ def morton_decode(code: int):
     """Decodes Morton code into (x, y)."""
     return compact1by1(code), compact1by1(code >> 1)
 
+from src.kernels import boundary_conditions as bc
+
 @wp.kernel
 def compute_block_coordinates(
     morton_codes: wp.array(dtype=wp.int32),
     level: int,
-    root_bounds: wp.vec4, # min_x, min_y, max_x, max_y
-    nodes_2d: wp.array(dtype=wp.vec2),
-    out_x: wp.array(dtype=float, ndim=2),
-    out_y: wp.array(dtype=float, ndim=2)
+    root_bounds: Any, # Changed from wp.array(dtype=Any) to Any
+    nodes_2d: wp.array(dtype=Any),
+    out_x: wp.array(dtype=Any, ndim=2),
+    out_y: wp.array(dtype=Any, ndim=2)
 ):
     """
     Computes physical coordinates for all nodes in active blocks.
@@ -57,27 +60,31 @@ def compute_block_coordinates(
     # Grid dimensions at this level
     grid_dim = 1 << level
     
+    # Map reference node [-1, 1] to physical block
+    ref_node = nodes_2d[node_idx]
+    r = ref_node[0]
+    s = ref_node[1]
+
     # Domain size
     domain_w = root_bounds[2] - root_bounds[0]
     domain_h = root_bounds[3] - root_bounds[1]
     
     # Block size
-    dx = domain_w / float(grid_dim)
-    dy = domain_h / float(grid_dim)
+    # Using r to get the correct precision for division
+    f_grid_dim = bc.get_any_generic(r, wp.float(grid_dim))
+    dx = domain_w / f_grid_dim
+    dy = domain_h / f_grid_dim
     
     # Block origin (bottom-left)
-    x0 = root_bounds[0] + float(ix) * dx
-    y0 = root_bounds[1] + float(iy) * dy
-    
-    # Map reference node [-1, 1] to physical block
-    ref_node = nodes_2d[node_idx]
-    r = ref_node[0]
-    s = ref_node[1]
+    x0 = root_bounds[0] + bc.get_any_generic(r, wp.float(ix)) * dx
+    y0 = root_bounds[1] + bc.get_any_generic(r, wp.float(iy)) * dy
     
     # x = x0 + (r + 1)/2 * dx
     # y = y0 + (s + 1)/2 * dy
-    phys_x = x0 + (r + 1.0) * 0.5 * dx
-    phys_y = y0 + (s + 1.0) * 0.5 * dy
+    one = bc.get_one_generic(r)
+    half = bc.get_half_generic(r)
+    phys_x = x0 + (r + one) * half * dx
+    phys_y = y0 + (s + one) * half * dy
     
     out_x[block_idx, node_idx] = phys_x
     out_y[block_idx, node_idx] = phys_y

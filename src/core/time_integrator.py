@@ -48,6 +48,7 @@ class TimeIntegrator:
         pass
 
     def step_ssp_rk3(self, rhs_function, dt: float, time: float, num_active: int):
+        scalar_dtype = self.state.scalar_dtype
         
         # --- Stage 1 ---
         # Compute RHS(Q_n) -> stored in self.state.rhs
@@ -61,7 +62,7 @@ class TimeIntegrator:
             inputs=[
                 self.state.q,
                 self.state.rhs,
-                dt,
+                scalar_dtype(dt),
                 self.state.q_temp # Output to Temp
             ],
             device=self.state.device
@@ -80,10 +81,10 @@ class TimeIntegrator:
                 self.state.q,       # Q_n
                 self.state.q_temp,  # Q(1)
                 self.state.rhs,     # RHS(Q(1))
-                dt,
+                scalar_dtype(dt),
                 self.state.q_temp,  # Output Q(2)
-                0.75,
-                0.25
+                scalar_dtype(0.75),
+                scalar_dtype(0.25)
             ],
             device=self.state.device
         )
@@ -103,10 +104,10 @@ class TimeIntegrator:
                 self.state.q,      # Q_n
                 self.state.q_temp, # Q(2)
                 self.state.rhs,    # RHS(Q(2))
-                dt,
+                scalar_dtype(dt),
                 self.state.q,      # Output Q_n+1
-                1.0/3.0,
-                2.0/3.0
+                scalar_dtype(1.0/3.0),
+                scalar_dtype(2.0/3.0)
             ],
             device=self.state.device
         )

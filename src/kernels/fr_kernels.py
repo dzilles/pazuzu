@@ -2,23 +2,25 @@ import warp as wp
 from src.physics.laws import euler
 from src.kernels import boundary_conditions as bc
 
+from typing import Any
+
 @wp.kernel
 def compute_fr_update(
-    q: wp.array(dtype=wp.vec4, ndim=2),
+    q: wp.array(dtype=Any, ndim=2),
     active_indices: wp.array(dtype=int),
     neighbors: wp.array(dtype=int, ndim=2),
     num_active: int,
-    rhs: wp.array(dtype=wp.vec4, ndim=2),
+    rhs: wp.array(dtype=Any, ndim=2),
     # Geometry
-    nodes_1d: wp.array(dtype=float),
-    D1D: wp.array(dtype=float, ndim=2),
-    dg_L: wp.array(dtype=float),
-    dg_R: wp.array(dtype=float),
-    root_bounds: wp.vec4,
+    nodes_1d: wp.array(dtype=Any),
+    D1D: wp.array(dtype=Any, ndim=2),
+    dg_L: wp.array(dtype=Any),
+    dg_R: wp.array(dtype=Any),
+    root_bounds: Any,
     level: int,
     # Physics
-    params: euler.EquationParams32, 
-    t: float
+    params: Any, 
+    t: Any
 ):
     # 1D Thread Index -> Block + Node
     tid = wp.tid()
@@ -41,15 +43,22 @@ def compute_fr_update(
     grid_dim = 1 << level
     domain_w = root_bounds[2] - root_bounds[0]
     domain_h = root_bounds[3] - root_bounds[1]
-    dx = domain_w / float(grid_dim)
-    dy = domain_h / float(grid_dim)
+    
+    template = q[0, 0][0]
+    f_grid_dim = bc.get_any_generic(template, wp.float(grid_dim))
+    dx = domain_w / f_grid_dim
+    dy = domain_h / f_grid_dim
     
     # Geometric Factors: d/dx = (2/dx) * d/dr
-    inv_J_x = 2.0 / dx
-    inv_J_y = 2.0 / dy
+    one = bc.get_one_generic(template)
+    two = one + one
+    inv_J_x = two / dx
+    inv_J_y = two / dy
+    
+    zero = one - one
     
     # --- 1. Volume Gradient (Divergence) ---
-    val_div = wp.vec4(0.0, 0.0, 0.0, 0.0)
+    val_div = q[0, 0] - q[0, 0] # Generic zero vector of correct precision
     
     # Loop over k (1D line)
     for k in range(N1):
@@ -78,7 +87,7 @@ def compute_fr_update(
         idx_neigh = j * N1 + (N1 - 1)
         q_L_ghost = q[neigh_L, idx_neigh]
         
-    F_star_L = euler.rusanov_flux(q_L_ghost, q_L_internal, 1.0, 0.0, params)
+    F_star_L = euler.rusanov_flux(q_L_ghost, q_L_internal, one, zero, params)
     corr_x = (F_star_L - f_L_internal) * dg_L[i]
     
     # Right Interface (i=N1-1)
@@ -93,7 +102,7 @@ def compute_fr_update(
         idx_neigh = j * N1 + 0
         q_R_ghost = q[neigh_R, idx_neigh]
         
-    F_star_R = euler.rusanov_flux(q_R_internal, q_R_ghost, 1.0, 0.0, params)
+    F_star_R = euler.rusanov_flux(q_R_internal, q_R_ghost, one, zero, params)
     corr_x += (F_star_R - f_R_internal) * dg_R[i]
     
     corr_x *= inv_J_x
@@ -112,7 +121,7 @@ def compute_fr_update(
         q_B_ghost = q[neigh_B, idx_neigh]
         
     # Flux in Y direction, Normal=(0,1)
-    G_star_B = euler.rusanov_flux(q_B_ghost, q_B_internal, 0.0, 1.0, params)
+    G_star_B = euler.rusanov_flux(q_B_ghost, q_B_internal, zero, one, params)
     corr_y = (G_star_B - g_B_internal) * dg_L[j] # Uses Left correction poly for Bottom (-1)
     
     # Top Interface (j=N1-1)
@@ -127,7 +136,7 @@ def compute_fr_update(
         idx_neigh = 0 * N1 + i
         q_T_ghost = q[neigh_T, idx_neigh]
         
-    G_star_T = euler.rusanov_flux(q_T_internal, q_T_ghost, 0.0, 1.0, params)
+    G_star_T = euler.rusanov_flux(q_T_internal, q_T_ghost, zero, one, params)
     corr_y += (G_star_T - g_T_internal) * dg_R[j] # Uses Right correction poly for Top (+1)
     
     corr_y *= inv_J_y

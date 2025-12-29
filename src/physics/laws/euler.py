@@ -45,7 +45,7 @@ def flux_y(q: Any, params: Any):
     return bc.make_vec4_generic(q[2], q[1]*v, q[2]*v + p, (q[3] + p)*v)
 
 @wp.func
-def rusanov_flux(q_L: Any, q_R: Any, nx: float, ny: float, params: Any):
+def rusanov_flux(q_L: Any, q_R: Any, nx: Any, ny: Any, params: Any):
     """
     Computes the Rusanov (LLF) numerical flux at an interface with normal (nx, ny).
     """
@@ -80,4 +80,4 @@ def rusanov_flux(q_L: Any, q_R: Any, nx: float, ny: float, params: Any):
     
     # Rusanov Formula
     # F* = 0.5 * (Fn_L + Fn_R) - 0.5 * lambda * (q_R - q_L)
-    return 0.5 * (Fn_L + Fn_R) - 0.5 * lambda_max * (q_R - q_L)
+    return params.half * (Fn_L + Fn_R) - params.half * lambda_max * (q_R - q_L)

@@ -45,9 +45,9 @@ def compute_errors(solver):
             solver.state.active_block_indices,
             solver.quadtree.num_blocks,
             solver.params,
-            t_eff,
-            float(solver.config.initial_condition.params.get('beta', 5.0)),
-            float(solver.config.initial_condition.params.get('radius', 1.0))
+            solver.scalar_dtype(t_eff),
+            solver.scalar_dtype(float(solver.config.initial_condition.params.get('beta', 5.0))),
+            solver.scalar_dtype(float(solver.config.initial_condition.params.get('radius', 1.0)))
         ],
         device=solver.device
     )

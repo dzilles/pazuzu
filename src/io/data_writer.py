@@ -72,12 +72,14 @@ class HDF5Writer:
             mesh_grp = f.create_group("mesh")
             
             # 1. Vertices (Geometry)
-            points = np.zeros((n_points, 3), dtype=np.float32)
+            numpy_dtype = np.float64 if solver.state.scalar_dtype == wp.float64 else np.float32
+            self.precision_str = "8" if solver.state.scalar_dtype == wp.float64 else "4"
+
+            points = np.zeros((n_points, 3), dtype=numpy_dtype)
             points[:, 0] = verts_x
             points[:, 1] = verts_y
             points[:, 2] = 0.0
-            mesh_grp.create_dataset("points", data=points)
-            
+            mesh_grp.create_dataset("points", data=points)            
             # 2. Connectivity (Topology)
             # We construct sub-quads for each high-order element.
             # Grid is N x N sub-cells per block.
@@ -174,7 +176,7 @@ class HDF5Writer:
                 
                 # --- Geometry ---
                 f.write(f'    <Geometry GeometryType="XYZ">\n')
-                f.write(f'     <DataItem Dimensions="{self.n_vis_points} 3" NumberType="Float" Precision="4" Format="HDF">\n')
+                f.write(f'     <DataItem Dimensions="{self.n_vis_points} 3" NumberType="Float" Precision="{self.precision_str}" Format="HDF">\n')
                 f.write(f'      {h5_rel}:/mesh/points\n')
                 f.write(f'     </DataItem>\n')
                 f.write(f'    </Geometry>\n')
@@ -182,7 +184,7 @@ class HDF5Writer:
                 # --- Attributes ---
                 for var in ["rho", "u", "v", "p"]:
                     f.write(f'    <Attribute Name="{var}" AttributeType="Scalar" Center="{attr_type}">\n')
-                    f.write(f'     <DataItem Dimensions="{data_dim}" NumberType="Float" Precision="4" Format="HDF">\n')
+                    f.write(f'     <DataItem Dimensions="{data_dim}" NumberType="Float" Precision="{self.precision_str}" Format="HDF">\n')
                     f.write(f'      {h5_rel}:/data/step_{step}/{var}\n')
                     f.write(f'     </DataItem>\n')
                     f.write(f'    </Attribute>\n')
