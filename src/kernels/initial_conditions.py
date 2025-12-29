@@ -45,13 +45,15 @@ def init_isentropic_vortex(
     S_2pi = beta / (2.0 * 3.14159265359)
     exp_term = wp.exp(0.5 * (1.0 - r2_scaled))
     
-    du = -S_2pi * dy * exp_term
-    dv =  S_2pi * dx * exp_term
+    # Scale perturbation by radius to keep beta as peak velocity
+    du = -S_2pi * (dy / radius) * exp_term
+    dv =  S_2pi * (dx / radius) * exp_term
     
     u = params.u_inf + du
     v = params.v_inf + dv
     
-    T_sub = (gamma - 1.0) * 0.5 * (S_2pi * S_2pi) * wp.exp(1.0 - r2_scaled)
+    # Correct Isentropic Relation: T = 1 - ((gamma-1)/gamma) * (S^2/8pi^2) * exp(...)
+    T_sub = (gamma - 1.0) / gamma * 0.5 * (S_2pi * S_2pi) * wp.exp(1.0 - r2_scaled)
     T = 1.0 - T_sub
     
     rho = wp.pow(T, 1.0 / (gamma - 1.0))
