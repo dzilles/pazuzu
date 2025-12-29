@@ -13,6 +13,8 @@ from src.kernels.initial_conditions import init_isentropic_vortex
 from src.kernels.common_kernels import check_nan_indirect
 from src.io.data_writer import HDF5Writer
 
+from src.kernels.time_step_kernels import compute_max_wave_speed
+
 class PazuzuSolver:
     def __init__(self, config: Union[str, PazuzuConfig]):
         if isinstance(config, str):
@@ -82,8 +84,9 @@ class PazuzuSolver:
             
         self.writer = HDF5Writer(os.path.join(output_dir, "results.h5"), self)
         
-        # 8. NaN Detection Flag
+        # 8. Detection Flags and DT Buffer
         self.nan_flag = wp.zeros(1, dtype=wp.int32, device=self.device)
+        self.max_inv_dt = wp.zeros(1, dtype=self.scalar_dtype, device=self.device)
         
         # Write Initial State (Step 0)
         print("Saving initial state...")
@@ -183,16 +186,51 @@ class PazuzuSolver:
             device=self.device
         )
 
+    def compute_dt(self):
+        self.max_inv_dt.zero_()
+        wp.launch(
+            kernel=compute_max_wave_speed,
+            dim=self.quadtree.num_blocks * self.basis.Np,
+            inputs=[
+                self.state.q,
+                self.state.active_block_indices,
+                self.quadtree.num_blocks,
+                self.quadtree.block_levels,
+                self.quadtree.root_bounds_wp,
+                self.params,
+                self.max_inv_dt
+            ],
+            device=self.device
+        )
+        
+        max_wave_metric = self.max_inv_dt.numpy()[0]
+        if max_wave_metric < 1e-12:
+            return self.config.numerics.dt_init # Fallback or Initial
+            
+        dt = self.config.numerics.cfl / max_wave_metric
+        return dt
+
     def run(self):
         print(f"Starting simulation: {self.config.case_name}")
         t = 0.0
-        dt = 0.001 # Fixed DT for now. 
-        # Ideally, calculate DT based on CFL: dt = CFL * dx / max_wave_speed
         
         log_freq = self.config.io.write_interval
         t_final = self.config.simulation.t_final
+        max_steps = self.config.simulation.max_steps
         
         while t < t_final:
+            if self.state.step >= max_steps:
+                print(f"Reached maximum steps ({max_steps}). Saving final state and exiting.")
+                if self.state.step % log_freq != 0:
+                    self.writer.write_step(self.state.step, t)
+                return
+
+            dt = self.compute_dt()
+            
+            # Stability Check
+            if dt < self.config.numerics.dt_min:
+                raise RuntimeError(f"Aborting: Computed timestep {dt:.2e} is smaller than dt_min {self.config.numerics.dt_min:.2e}. The simulation may be unstable.")
+
             self.integrator.step_ssp_rk3(
                 self.compute_rhs,
                 dt,

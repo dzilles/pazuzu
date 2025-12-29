@@ -1,4 +1,4 @@
-name: Run Tests
+name: CI
 
 on:
   push:
@@ -7,32 +7,57 @@ on:
     branches: [ "main" ]
 
 jobs:
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          
+      - name: Install tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+          pip install -r requirements.txt
+          
+      - name: Lint with Ruff
+        run: ruff check .
+        continue-on-error: true
+        
+      - name: Type check with Mypy
+        run: mypy src
+        # Continue on error for mypy initially as codebase might not be 100% typed
+        continue-on-error: true
+
   test:
+    name: Tests
+    needs: quality
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+        
     runs-on: ${{ matrix.os }}
-
+    
     steps:
     - uses: actions/checkout@v4
-
-    - name: Install system dependencies (Linux)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libglu1-mesa libxcursor1 libxinerama1
-
-    - name: Set up Python 3.12
+    
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
-        python-version: "3.12"
+        python-version: ${{ matrix.python-version }}
         cache: 'pip'
-
+        
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-
-    - name: Run tests with pytest
+        
+    - name: Run tests
       run: |
         pytest
