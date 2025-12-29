@@ -211,4 +211,4 @@ if __name__ == "__main__":
         solver = PazuzuSolver(sys.argv[1])
         solver.run()
     else:
-        print("Usage: python pazuzu.py <config.yaml>")
+        print("Usage: python solver.py <config.yaml>")
