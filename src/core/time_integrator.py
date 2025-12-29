@@ -110,6 +110,3 @@ class TimeIntegrator:
             ],
             device=self.state.device
         )
-        
-        self.state.t += dt
-        self.state.step += 1

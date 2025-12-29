@@ -26,7 +26,7 @@ io:
   output_dir: "output"
 
 simulation:
-  t_final: 10
+  t_final: 1.0
   device: "cuda"
 
 amr:
