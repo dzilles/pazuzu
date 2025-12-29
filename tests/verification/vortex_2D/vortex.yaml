@@ -37,3 +37,4 @@ numerics:
   polynomial_order: 2
   precision: "single"
   cfl: 0.1
+  dt_static: 0.001
