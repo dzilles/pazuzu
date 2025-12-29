@@ -123,7 +123,8 @@ def run_vortex_simulation(precision_mode):
         numerics=NumericsConfig(
             polynomial_order=2, # N=2 (3rd order) where we saw difference
             cfl=0.1,
-            precision=precision_mode
+            precision=precision_mode,
+            dt_static=0.001
         ),
         io=IOConfig(
             output_dir=f"output/test_precision_{precision_mode}",
@@ -170,8 +171,8 @@ def test_precision_improvement():
     assert err_double < err_single, "Double precision error should be lower than single precision."
     
     # 2. Significant improvement check (heuristic)
-    # We saw ~7x improvement in manual tests. Let's be conservative and ask for >1.1x
-    assert ratio > 1.1, f"Expected significant improvement (>1.1x), got {ratio:.2f}x"
+    # We saw ~7x improvement in manual tests.
+    assert ratio > 7.0, f"Expected significant improvement (>7.0x), got {ratio:.2f}x"
 
 if __name__ == "__main__":
     test_precision_improvement()

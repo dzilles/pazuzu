@@ -23,6 +23,9 @@ class NumericsConfig(BaseModel):
     cfl: float = Field(default=0.4, gt=0, description="CFL number (must be > 0)")
     polynomial_order: int = Field(default=1, ge=0, description="Polynomial degree for DG")
     precision: Literal["single", "double"] = Field(default="single", description="Floating point precision (single or double)")
+    dt_min: float = Field(default=1e-9, gt=0, description="Minimum allowed timestep")
+    dt_init: float = Field(default=0.001, gt=0, description="Initial timestep")
+    dt_static: Optional[float] = Field(default=None, gt=0, description="Optional fixed timestep to override CFL-based DT")
 
 class IOConfig(BaseModel):
     output_dir: str = Field(default="output", description="Directory for output files")
@@ -30,6 +33,7 @@ class IOConfig(BaseModel):
 
 class SimulationConfig(BaseModel):
     t_final: float = Field(default=1.0, gt=0, description="Final simulation time")
+    max_steps: int = Field(default=1000000, ge=1, description="Maximum number of steps")
     device: str = Field(default="cpu", description="Compute device (cpu or cuda)")
 
 class InitialConditionConfig(BaseModel):

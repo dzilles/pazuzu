@@ -187,6 +187,9 @@ class PazuzuSolver:
         )
 
     def compute_dt(self):
+        if self.config.numerics.dt_static is not None:
+            return self.config.numerics.dt_static
+
         self.max_inv_dt.zero_()
         wp.launch(
             kernel=compute_max_wave_speed,
