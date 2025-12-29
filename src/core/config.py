@@ -4,26 +4,13 @@ from typing import Dict, Any, Optional, List, Union, Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError, ConfigDict
 
-class FluxType(str, Enum):
-    RUSANOV = "rusanov"
-    HLLC = "hllc"
-    ROE = "roe"
-
 class SolverType(str, Enum):
     EULER_2D = "euler_2d"
     NAVIER_STOKES_2D = "navier_stokes_2d"
 
-class LimiterType(str, Enum):
-    NONE = "none"
-    BARTH_JESPERSEN = "barth_jespersen"
-    MINMOD = "minmod"
-
 class PhysicsConfig(BaseModel):
     gamma: float = Field(default=1.4, gt=1.0, description="Adiabatic index (heat capacity ratio)")
     gas_constant: float = Field(default=287.0, gt=0.0, description="Specific gas constant (R)")
-    cp: float = Field(default=1004.5, gt=0.0, description="Specific heat at constant pressure (J/kg*K)")
-    mu: float = Field(default=1.0e-5, ge=0.0, description="Dynamic viscosity (Pa*s)")
-    prandtl: float = Field(default=0.72, ge=0.0, description="Prandtl number")
     # Freestream / Background state
     rho_inf: float = Field(default=1.0, gt=0.0, description="Freestream density")
     u_inf: float = Field(default=0.0, description="Freestream x-velocity")
@@ -36,14 +23,6 @@ class NumericsConfig(BaseModel):
     cfl: float = Field(default=0.4, gt=0, description="CFL number (must be > 0)")
     polynomial_order: int = Field(default=1, ge=0, description="Polynomial degree for DG")
     precision: Literal["single", "double"] = Field(default="single", description="Floating point precision (single or double)")
-    flux_type: FluxType = Field(default=FluxType.HLLC, description="Numerical flux scheme")
-    limiter: LimiterType = Field(default=LimiterType.NONE, description="Limiter for shock capturing")
-    use_filtering: bool = Field(default=False, description="Enable exponential filtering against aliasing")
-    filter_alpha: float = Field(default=36.0, description="Filter strength (alpha)")
-    filter_order: int = Field(default=16, description="Filter order")
-    over_integration_order: int = Field(default=0, ge=0, description="Order of quadrature for over-integration (0 = disabled, otherwise Nq_1d)")
-    min_dt: float = Field(default=1e-15, gt=0, description="Minimum allowable time step before aborting")
-    hllc_epsilon: float = Field(default=1.0e-8, description="Small epsilon for HLLC wave speed computation")
 
 class IOConfig(BaseModel):
     output_dir: str = Field(default="output", description="Directory for output files")
@@ -51,10 +30,7 @@ class IOConfig(BaseModel):
 
 class SimulationConfig(BaseModel):
     t_final: float = Field(default=1.0, gt=0, description="Final simulation time")
-    ramp_time: float = Field(default=1.0, description="Ramp time for boundary conditions")
     device: str = Field(default="cpu", description="Compute device (cpu or cuda)")
-    max_steps: Optional[int] = Field(default=None, description="Maximum number of time steps")
-    restart_from: Optional[str] = Field(default=None, description="Path to HDF5 file to restart from")
 
 class InitialConditionConfig(BaseModel):
     name: str = Field(..., description="Name of the initial condition")
@@ -62,9 +38,7 @@ class InitialConditionConfig(BaseModel):
 
 class AmrConfig(BaseModel):
     max_blocks: int = Field(default=10000, gt=0, description="Maximum number of blocks in the memory pool")
-    max_depth: int = Field(default=5, ge=0, description="Maximum refinement depth")
     initial_depth: int = Field(default=3, ge=0, description="Initial refinement depth (uniform)")
-    refinement_threshold: float = Field(default=0.1, gt=0.0, description="Threshold for refinement/coarsening")
 
 class MeshConfig(BaseModel):
     x_min: float = Field(default=-1.0, description="Domain x-min")
@@ -78,9 +52,6 @@ class PazuzuConfig(BaseModel):
     case_name: str = Field(default="simulation", description="Name of the simulation case")
     solver_type: SolverType = Field(default=SolverType.EULER_2D, description="Type of solver to use")
     mesh: MeshConfig = Field(default_factory=MeshConfig, description="Mesh/Domain configuration")
-    amr: AmrConfig = Field(default_factory=AmrConfig, description="AMR configuration")
-    initial_condition: Union[str, InitialConditionConfig] = Field(default="vortex", description="Initial condition configuration")
-    # mesh_file: str = Field(..., description="Path to the mesh file (.msh)") # Removed in favor of AMR
     amr: AmrConfig = Field(default_factory=AmrConfig, description="AMR configuration")
     initial_condition: Union[str, InitialConditionConfig] = Field(default="vortex", description="Initial condition configuration")
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)

@@ -74,23 +74,32 @@ class PazuzuSolver:
         self.writer.write_step(0, 0.0)
 
     def _init_physics(self):
-        # Convert config physics to Warp struct
+        # Create the struct instance directly, NOT a wp.array
         p = self.config.physics
+        self.params = ParamsStruct()
         
-        params_np = np.zeros(1, dtype=ParamsStruct.numpy_dtype())
-        params_np[0]['gamma'] = p.gamma
-        params_np[0]['gas_constant'] = p.gas_constant
-        params_np[0]['rho_floor'] = p.rho_floor
-        params_np[0]['p_floor'] = p.p_floor
-        params_np[0]['half'] = 0.5
-        params_np[0]['one'] = 1.0
-        # ... others
-        params_np[0]['rho_inf'] = p.rho_inf
-        params_np[0]['u_inf'] = p.u_inf
-        params_np[0]['v_inf'] = p.v_inf
-        params_np[0]['p_inf'] = p.p_inf
+        # Populate fields
+        self.params.gamma = float(p.gamma)
+        self.params.rho_inf = float(p.rho_inf)
+        self.params.u_inf = float(p.u_inf)
+        self.params.v_inf = float(p.v_inf)
+        self.params.p_inf = float(p.p_inf)
+        self.params.gas_constant = float(p.gas_constant) if hasattr(p, 'gas_constant') else 1.0
         
-        self.params = wp.array(params_np, dtype=ParamsStruct, device=self.device)
+        # Floors and constants
+        self.params.rho_floor = float(p.rho_floor) if hasattr(p, 'rho_floor') else 1e-8
+        self.params.p_floor = float(p.p_floor) if hasattr(p, 'p_floor') else 1e-8
+        self.params.half = 0.5
+        self.params.one = 1.0
+        
+        # Zero out others (viscosity etc.) if not used, or set defaults
+        self.params.mu = 0.0
+        self.params.prandtl = 0.72
+        self.params.cp = 1.0
+        self.params.epsilon = 1.0e-10
+
+        # Note: We do NOT wrap this in wp.array(). 
+        # We pass the 'self.params' object directly to wp.launch inputs.
 
     def _init_mesh(self):
         # Uniform Refinement to start

@@ -16,31 +16,34 @@ def hash_int(k: int):
 
 @wp.func
 def map_insert(keys: wp.array(dtype=int), values: wp.array(dtype=int), capacity: int, key: int, value: int):
+    """
+    Thread-safe insertion using Atomic Compare-And-Swap (CAS).
+    """
     slot = hash_int(key) % capacity
     start_slot = slot
     
     while True:
-        # Check if slot is empty or already contains the key (update)
-        # We rely on atomic CAS if parallel, but for Phase 1 we can assume 
-        # one thread per block insertion if distinct keys.
-        # For simplicity in this "populate" kernel, we assume distinct keys (Morton codes are unique).
+        # Try to acquire the slot atomically.
+        # atomic_cas(array, index, compare_value, new_value)
+        # Returns the OLD value at that slot.
+        old_key = wp.atomic_cas(keys, slot, EMPTY, key)
         
-        # In a race-free scenario (unique keys, one thread per key):
-        existing = keys[slot]
-        if existing == EMPTY:
-            # Found empty slot
-            keys[slot] = key
-            values[slot] = value
-            return
-        
-        if existing == key:
-            # Update existing
+        # Case 1: Slot was EMPTY, and we successfully claimed it.
+        if old_key == EMPTY:
             values[slot] = value
             return
             
+        # Case 2: Slot already contained OUR key (idempotent update).
+        if old_key == key:
+            values[slot] = value
+            return
+            
+        # Case 3: Slot contained a DIFFERENT key (Collision).
+        # Linear probe to next slot.
         slot = (slot + 1) % capacity
+        
+        # Safety break if map is completely full
         if slot == start_slot:
-            # Full
             return
 
 @wp.func
@@ -69,17 +72,12 @@ def init_hash_map(keys: wp.array(dtype=int), values: wp.array(dtype=int)):
 @wp.kernel
 def populate_hash_map(
     morton_codes: wp.array(dtype=int),
-    active_indices: wp.array(dtype=int), # Mapping: 0..N -> PoolIndex
+    active_indices: wp.array(dtype=int), 
     num_active: int,
     map_keys: wp.array(dtype=int),
     map_values: wp.array(dtype=int),
     capacity: int
 ):
-    """
-    Inserts active blocks into the hash map.
-    Key = Morton Code
-    Value = Pool Index
-    """
     tid = wp.tid()
     if tid >= num_active:
         return
@@ -97,15 +95,11 @@ def compute_neighbors(
     map_keys: wp.array(dtype=int),
     map_values: wp.array(dtype=int),
     map_capacity: int,
-    out_neighbors: wp.array(dtype=int, ndim=2), # (MAX_BLOCKS, 4)
+    out_neighbors: wp.array(dtype=int, ndim=2), 
     level: int,
-    periodic_x: int, # boolean 0/1
-    periodic_y: int  # boolean 0/1
+    periodic_x: int, 
+    periodic_y: int  
 ):
-    """
-    For each active block, finds neighbors by looking up computed codes in the hash map.
-    Handles periodic boundaries if enabled.
-    """
     tid = wp.tid()
     if tid >= num_active:
         return
@@ -113,34 +107,27 @@ def compute_neighbors(
     pool_idx = active_indices[tid]
     code = morton_codes[pool_idx]
     
-    # Decode to get (x, y)
     ix, iy = morton_decode(code)
-    
     grid_dim = 1 << level
     
-    # Helper to wrap coordinate
-    # LEFT (Face 0? No, indices 0:Left, 1:Right, 2:Bottom, 3:Top)
-    # Wait, check mapping. 
-    # Current code:
-    # 0: Left (x-1)
-    # 1: Right (x+1)
-    # 2: Bottom (y-1)
-    # 3: Top (y+1)
-    
-    # --- LEFT ---
+    # --- LEFT (Face 0) ---
     nx = ix - 1
     ny = iy
     if nx < 0:
         if periodic_x != 0: nx = grid_dim - 1
-        else: nx = -1 # Invalid
+        else: nx = -1 
     
     n_idx = -1
     if nx >= 0:
         code_n = morton_encode(nx, ny)
         n_idx = map_lookup(map_keys, map_values, map_capacity, code_n)
+        # --- CHECK IF MISSING ---
+        if n_idx == -1:
+             wp.printf("Error: Block %d (x=%d, y=%d) missing LEFT neighbor at x=%d, y=%d\n", pool_idx, ix, iy, nx, ny)
+
     out_neighbors[pool_idx, 0] = n_idx
 
-    # --- RIGHT ---
+    # --- RIGHT (Face 1) ---
     nx = ix + 1
     ny = iy
     if nx >= grid_dim:
@@ -148,12 +135,16 @@ def compute_neighbors(
         else: nx = -1
     
     n_idx = -1
-    if nx >= 0: # -1 indicates OOB non-periodic
+    if nx >= 0:
         code_n = morton_encode(nx, ny)
         n_idx = map_lookup(map_keys, map_values, map_capacity, code_n)
+        # --- CHECK IF MISSING ---
+        if n_idx == -1:
+             wp.printf("Error: Block %d (x=%d, y=%d) missing RIGHT neighbor at x=%d, y=%d\n", pool_idx, ix, iy, nx, ny)
+
     out_neighbors[pool_idx, 1] = n_idx
     
-    # --- BOTTOM ---
+    # --- BOTTOM (Face 2) ---
     nx = ix
     ny = iy - 1
     if ny < 0:
@@ -164,9 +155,13 @@ def compute_neighbors(
     if ny >= 0:
         code_n = morton_encode(nx, ny)
         n_idx = map_lookup(map_keys, map_values, map_capacity, code_n)
+        # --- CHECK IF MISSING ---
+        if n_idx == -1:
+             wp.printf("Error: Block %d (x=%d, y=%d) missing BOTTOM neighbor at x=%d, y=%d\n", pool_idx, ix, iy, nx, ny)
+
     out_neighbors[pool_idx, 2] = n_idx
 
-    # --- TOP ---
+    # --- TOP (Face 3) ---
     nx = ix
     ny = iy + 1
     if ny >= grid_dim:
@@ -177,4 +172,8 @@ def compute_neighbors(
     if ny >= 0:
         code_n = morton_encode(nx, ny)
         n_idx = map_lookup(map_keys, map_values, map_capacity, code_n)
+        # --- CHECK IF MISSING ---
+        if n_idx == -1:
+             wp.printf("Error: Block %d (x=%d, y=%d) missing TOP neighbor at x=%d, y=%d\n", pool_idx, ix, iy, nx, ny)
+
     out_neighbors[pool_idx, 3] = n_idx

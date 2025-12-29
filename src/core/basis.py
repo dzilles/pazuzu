@@ -309,18 +309,18 @@ class Basis:
         """
         D = np.zeros((self.N1, self.N1))
         for i in range(self.N1):
+            row_sum = 0.0   # Accumulator
             for j in range(self.N1):
                 if i != j:
                     Ln_i = legendre(self.N)(nodes[i])
                     Ln_j = legendre(self.N)(nodes[j])
-                    D[i, j] = Ln_i / (Ln_j * (nodes[i] - nodes[j]))
-                else:
-                    if i == 0:
-                        D[i, j] = -self.N * self.N1 / 4.0
-                    elif i == self.N:
-                        D[i, j] = self.N * self.N1 / 4.0
-                    else:
-                        D[i, j] = 0.0 # Important: 0 for Legendre GLL internal nodes
+                    val = Ln_i / (Ln_j * (nodes[i] - nodes[j]))
+                    D[i, j] = val
+                    row_sum += val
+            
+            # Robustly compute diagonal as negative row sum
+            D[i, i] = -row_sum 
+            
         return D
 
     def _differentiation_matrices_2d(self, D1D):
