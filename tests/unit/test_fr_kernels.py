@@ -42,11 +42,16 @@ def test_fr_update_constant_flow(device):
     state.q = wp.array(q_host, dtype=wp.vec4, device=device)
     
     # Params
-    params_np = np.zeros(1, dtype=EquationParams32.numpy_dtype())
-    params_np[0]['gamma'] = gamma
-    params_np[0]['rho_floor'] = 1e-5
-    params_np[0]['p_floor'] = 1e-5
-    params = wp.array(params_np, dtype=EquationParams32, device=device)
+    params = EquationParams32()
+    params.gamma = gamma
+    params.rho_floor = 1e-5
+    params.p_floor = 1e-5
+    params.one = 1.0
+    params.half = 0.5
+    params.mu = 0.0
+    params.prandtl = 0.72
+    params.cp = 1.0
+    params.gas_constant = 1.0
     
     # Run Kernel
     wp.launch(
@@ -109,9 +114,16 @@ def test_fr_update_linear_density(device):
             
     state.q = wp.array(q_host, dtype=wp.vec4, device=device)
     
-    params_np = np.zeros(1, dtype=EquationParams32.numpy_dtype())
-    params_np[0]['gamma'] = gamma
-    params = wp.array(params_np, dtype=EquationParams32, device=device)
+    params = EquationParams32()
+    params.gamma = gamma
+    params.rho_floor = 1e-5
+    params.p_floor = 1e-5
+    params.one = 1.0
+    params.half = 0.5
+    params.mu = 0.0
+    params.prandtl = 0.72
+    params.cp = 1.0
+    params.gas_constant = 1.0
     
     wp.launch(
         kernel=compute_fr_update,
