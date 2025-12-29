@@ -28,7 +28,9 @@ def compute_l2_error(solver):
             solver.state.active_block_indices,
             solver.quadtree.num_blocks,
             solver.params,
-            solver.state.t # t_final
+            solver.state.t, # t_final
+            float(solver.config.initial_condition.params.get('beta', 5.0)),
+            float(solver.config.initial_condition.params.get('radius', 1.0))
         ],
         device=solver.device
     )
