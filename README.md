@@ -108,6 +108,7 @@ python tests/verification/vortex_2D/verify.py
 
 The `tests/verification/` directory contains several standard cases:
 *   **Isentropic Vortex:** Order of accuracy verification.
+    *   [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dzilles/pazuzu/blob/feature/quadtree-amr-fr/tests/verification/vortex_2D/vortex_analysis.ipynb)
 *   **Channel Flow:** Wall boundary conditions.
 *   **Cylinder Flow:** Unstructured mesh and complex geometry.
 *   **Acoustic Pulse:** Wave propagation.
