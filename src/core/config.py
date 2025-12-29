@@ -62,6 +62,24 @@ class PazuzuConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    def override(self, overrides: Dict[str, Any]) -> "PazuzuConfig":
+        """
+        Returns a new PazuzuConfig instance with updated values.
+        Support dot-notation for nested fields, e.g., {'numerics.cfl': 0.1}
+        """
+        data = self.model_dump()
+        
+        for path, value in overrides.items():
+            keys = path.split('.')
+            d = data
+            for key in keys[:-1]:
+                if key not in d:
+                    d[key] = {}
+                d = d[key]
+            d[keys[-1]] = value
+            
+        return PazuzuConfig(**data)
+
     @classmethod
     def from_yaml(cls, path: str) -> "PazuzuConfig":
         path_obj = Path(path)

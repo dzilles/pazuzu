@@ -1,6 +1,7 @@
 import warp as wp
 import numpy as np
 import os
+from typing import Union
 from src.core.config import PazuzuConfig, SolverType
 from src.core.simulation_state import SimulationState
 from src.core.basis import Basis
@@ -14,8 +15,12 @@ from src.kernels.common_kernels import check_nan_indirect
 from src.io.data_writer import HDF5Writer
 
 class PazuzuSolver:
-    def __init__(self, config_path: str):
-        self.config = PazuzuConfig.from_yaml(config_path)
+    def __init__(self, config: Union[str, PazuzuConfig]):
+        if isinstance(config, str):
+            self.config = PazuzuConfig.from_yaml(config)
+        else:
+            self.config = config
+            
         self.device = self.config.simulation.device
         wp.init()
         
