@@ -14,7 +14,7 @@ from src.kernels.initial_conditions import init_isentropic_vortex
 def compute_errors(solver):
     """
     Computes L2 and Linf error for the density field without hardcoded parameters.
-    Reused from analyze_vortex.py
+    Reused from test_vortex.py
     """
     # 1. Get Numerical Solution
     q_num = solver.state.q.numpy() 
