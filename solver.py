@@ -190,6 +190,7 @@ class PazuzuSolver:
             )
             
             t += dt
+            self.state.t = t
             self.state.step += 1
             
             if self.state.step % log_freq == 0:
