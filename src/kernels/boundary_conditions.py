@@ -57,11 +57,19 @@ def get_any_generic(template: wp.float32, val: wp.float64):
     return wp.float32(val)
 
 @wp.func
+def get_any_generic(template: wp.float32, val: int):
+    return wp.float32(val)
+
+@wp.func
 def get_any_generic(template: wp.float64, val: wp.float32):
     return wp.float64(val)
 
 @wp.func
 def get_any_generic(template: wp.float64, val: wp.float64):
+    return wp.float64(val)
+
+@wp.func
+def get_any_generic(template: wp.float64, val: int):
     return wp.float64(val)
 
 @wp.func

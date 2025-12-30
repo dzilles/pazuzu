@@ -29,16 +29,13 @@ def compute_max_wave_speed(
     level = block_levels[pool_idx]
     
     # Calculate dx, dy
-    # 1 << level is integer, need float
-    # warp doesn't support 1 << level directly in some contexts?
-    # It does.
-    grid_dim = float(1 << level)
+    grid_dim_int = 1 << level
     
     domain_w = root_bounds[2] - root_bounds[0]
     domain_h = root_bounds[3] - root_bounds[1]
     
     template = domain_w
-    f_grid_dim = bc.get_any_generic(template, wp.float(grid_dim))
+    f_grid_dim = bc.get_any_generic(template, grid_dim_int)
 
     dx = domain_w / f_grid_dim
     dy = domain_h / f_grid_dim

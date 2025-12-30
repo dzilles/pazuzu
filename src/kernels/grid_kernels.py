@@ -71,13 +71,13 @@ def compute_block_coordinates(
     
     # Block size
     # Using r to get the correct precision for division
-    f_grid_dim = bc.get_any_generic(r, wp.float(grid_dim))
+    f_grid_dim = bc.get_any_generic(r, grid_dim)
     dx = domain_w / f_grid_dim
     dy = domain_h / f_grid_dim
     
     # Block origin (bottom-left)
-    x0 = root_bounds[0] + bc.get_any_generic(r, wp.float(ix)) * dx
-    y0 = root_bounds[1] + bc.get_any_generic(r, wp.float(iy)) * dy
+    x0 = root_bounds[0] + bc.get_any_generic(r, ix) * dx
+    y0 = root_bounds[1] + bc.get_any_generic(r, iy) * dy
     
     # x = x0 + (r + 1)/2 * dx
     # y = y0 + (s + 1)/2 * dy

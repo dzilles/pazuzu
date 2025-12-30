@@ -51,7 +51,7 @@ def compute_fr_update(
     domain_h = root_bounds[3] - root_bounds[1]
     
     template = q[0, 0][0]
-    f_grid_dim = bc.get_any_generic(template, wp.float(grid_dim))
+    f_grid_dim = bc.get_any_generic(template, grid_dim)
     dx = domain_w / f_grid_dim
     dy = domain_h / f_grid_dim
     
