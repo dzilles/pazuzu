@@ -1,7 +1,7 @@
 import warp as wp
 import numpy as np
 from typing import Tuple, Optional
-from src.kernels.grid_kernels import compute_block_coordinates
+from src.kernels.grid_kernels import compute_block_coordinates, generate_morton_codes
 from src.kernels.connectivity_kernels import init_hash_map, populate_hash_map, compute_neighbors
 
 MAX_DEPTH = 10
@@ -72,19 +72,13 @@ class Quadtree:
 
         self.num_blocks = num_blocks
         
-        # 1. Generate Morton Codes on Host
-        host_codes = np.zeros(num_blocks, dtype=np.int32)
-        idx = 0
-        # Z-order iteration
-        for iy in range(grid_dim):
-            for ix in range(grid_dim):
-                code = morton_encode(ix, iy)
-                host_codes[idx] = code
-                idx += 1
-        
-        # 2. Upload to Device
-        # We fill the first num_blocks slots of the pool
-        wp.copy(self.block_morton_codes, wp.array(host_codes, dtype=wp.int32, device=self.device), count=num_blocks)
+        # 1. Generate Morton Codes on Device
+        wp.launch(
+            kernel=generate_morton_codes,
+            dim=num_blocks,
+            inputs=[self.block_morton_codes, grid_dim],
+            device=self.device
+        )
         
         # Set levels (all same)
         self.block_levels.fill_(level) 

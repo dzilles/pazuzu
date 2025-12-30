@@ -30,6 +30,16 @@ def morton_decode(code: int):
     """Decodes Morton code into (x, y)."""
     return compact1by1(code), compact1by1(code >> 1)
 
+@wp.kernel
+def generate_morton_codes(
+    codes: wp.array(dtype=wp.int32),
+    grid_dim: int
+):
+    tid = wp.tid()
+    iy = tid // grid_dim
+    ix = tid % grid_dim
+    codes[tid] = morton_encode(ix, iy)
+
 from src.kernels import boundary_conditions as bc
 
 @wp.kernel
