@@ -192,7 +192,7 @@ class PazuzuSolver:
                 self.basis.dg_L,
                 self.basis.dg_R,
                 self.quadtree.root_bounds_wp,
-                self.config.amr.initial_depth,
+                self.quadtree.block_levels,
                 self.params,
                 self.scalar_dtype(t)
             ],

@@ -68,7 +68,7 @@ def test_fr_update_constant_flow(device):
             basis.dg_L,
             basis.dg_R,
             quadtree.root_bounds_wp,
-            1, # level
+            quadtree.block_levels, # level
             params,
             0.0 # time
         ],
@@ -139,7 +139,7 @@ def test_fr_update_linear_density(device):
             basis.dg_L,
             basis.dg_R,
             quadtree.root_bounds_wp,
-            1, # level
+            quadtree.block_levels, # level
             params,
             0.0
         ],
@@ -272,7 +272,7 @@ def test_fr_update_hllc(device):
             basis.dg_L,
             basis.dg_R,
             quadtree.root_bounds_wp,
-            1, # level
+            quadtree.block_levels, # level
             params,
             0.0
         ],

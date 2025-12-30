@@ -57,3 +57,10 @@ class BoundaryState64:
     v1: wp.float64
     v2: wp.float64
     v3: wp.float64
+
+@wp.struct
+class MortarInterface:
+    coarse_idx: wp.int32      # Index of the coarse block
+    fine_idx_1: wp.int32      # Index of the first fine block (e.g., left/bottom half)
+    fine_idx_2: wp.int32      # Index of the second fine block (e.g., right/top half)
+    face_idx: wp.int32        # The face index on the COARSE block (0-3)

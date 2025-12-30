@@ -23,7 +23,7 @@ def compute_fr_update(
     dg_L: wp.array(dtype=Any),
     dg_R: wp.array(dtype=Any),
     root_bounds: Any,
-    level: int,
+    block_levels: wp.array(dtype=int),
     # Physics
     params: Any, 
     t: Any
@@ -45,8 +45,9 @@ def compute_fr_update(
     j = node_local // N1
     i = node_local % N1
     
-    # Grid Spacing (Uniform Cartesian)
-    grid_dim = 1 << level
+    # Grid Spacing (Local AMR)
+    my_level = block_levels[pool_idx]
+    grid_dim = 1 << my_level
     domain_w = root_bounds[2] - root_bounds[0]
     domain_h = root_bounds[3] - root_bounds[1]
     
