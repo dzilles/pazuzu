@@ -46,8 +46,8 @@ def periodic_vortex(x, y, t=0.0, Lx=10.0, Ly=10.0):
     return rho, u, v, p
 
 def run_study():
-    # depths = [6, 7, 8] -> Res = 64, 128, 256 blocks per edge
-    depths = [6, 7, 8] 
+    # depths = [5, 6, 7] -> Res = 32, 64, 128 blocks per edge
+    depths = [5, 6, 7] 
     orders = [1, 2, 3]
     
     all_results = {}
@@ -91,8 +91,10 @@ def run_study():
             config['amr'] = base_config['amr'].copy()
             
             config['numerics']['polynomial_order'] = P
-            config['numerics']['cfl'] = 0.01
+            config['numerics']['cfl'] = 0.1
+            config['simulation']['t_final'] = 1.0
             config['numerics']['flux'] = "hllc"
+            config['numerics']['time_integrator'] = "rk4"
             config['amr']['initial_depth'] = depth
             config['io']['output_dir'] = run_output_dir
             
@@ -137,21 +139,10 @@ def run_study():
                 
                 diff = rho_num - rho_ana
                 
-                # L2 norm calculation
-                Np = (P + 1)**2
-                num_blocks = len(rho_num) // Np
-                
+                # Discrete L2 norm (RMS) as in main branch
+                l2_error = np.sqrt(np.mean(diff**2))
+
                 dx = Lx / N_blocks_edge
-                dy = Ly / N_blocks_edge
-                jacobian = (dx * dy) / 4.0
-                
-                diff_blocks = diff.reshape(num_blocks, Np)
-                
-                l2_error_sq = 0.0
-                for b in range(num_blocks):
-                    l2_error_sq += np.sum(diff_blocks[b]**2 * weights_2d) * jacobian
-                
-                l2_error = np.sqrt(l2_error_sq)
                 
                 errors.append(l2_error)
                 h_values.append(dx)

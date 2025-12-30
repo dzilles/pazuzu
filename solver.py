@@ -252,6 +252,10 @@ class PazuzuSolver:
 
             dt = self.compute_dt()
             
+            # Clamp dt to hit t_final exactly
+            if t + dt > t_final:
+                dt = t_final - t
+            
             # Stability Check
             if dt < self.config.numerics.dt_min:
                 raise RuntimeError(f"Aborting: Computed timestep {dt:.2e} is smaller than dt_min {self.config.numerics.dt_min:.2e}. The simulation may be unstable.")
