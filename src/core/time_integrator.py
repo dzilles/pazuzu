@@ -23,11 +23,9 @@ class TimeIntegrator:
         import warp as wp
         scalar_dtype = self.state.scalar_dtype
         
-        # 1. Allocate Accumulator (q_accum)
-        # We need this because Classic RK4 sums updates while needing q_n for intermediate stages.
-        # Ideally this should be in SimulationState, but dynamic allocation is fine for proof-of-concept.
-        q_accum = wp.empty_like(self.state.q)
-        q_accum.zero_()
+        # 1. Clear Accumulator (q_accum)
+        # We use the pre-allocated buffer in SimulationState.
+        self.state.q_accum.zero_()
         
         # --- Stage 1 ---
         # k1 = f(q_n)
@@ -41,7 +39,7 @@ class TimeIntegrator:
             inputs=[
                 self.state.q,       # q_old
                 self.state.rhs,     # rhs (k1)
-                q_accum,            # q_accum
+                self.state.q_accum, # q_accum
                 self.state.q_temp,  # q_next
                 scalar_dtype(dt),
                 scalar_dtype(1.0/6.0), # weight_accum
@@ -62,7 +60,7 @@ class TimeIntegrator:
             inputs=[
                 self.state.q,
                 self.state.rhs,     # k2
-                q_accum,
+                self.state.q_accum,
                 self.state.q_temp,
                 scalar_dtype(dt),
                 scalar_dtype(1.0/3.0),
@@ -83,7 +81,7 @@ class TimeIntegrator:
             inputs=[
                 self.state.q,
                 self.state.rhs,     # k3
-                q_accum,
+                self.state.q_accum,
                 self.state.q_temp,
                 scalar_dtype(dt),
                 scalar_dtype(1.0/3.0),
@@ -108,7 +106,7 @@ class TimeIntegrator:
             dim=(num_active, self.state.Np),
             inputs=[
                 self.state.rhs,     # k4
-                q_accum,
+                self.state.q_accum,
                 scalar_dtype(dt),
                 scalar_dtype(1.0/6.0)
             ],
@@ -124,7 +122,7 @@ class TimeIntegrator:
             dim=(num_active, self.state.Np),
             inputs=[
                 self.state.q,
-                q_accum,
+                self.state.q_accum,
                 scalar_dtype(1.0),
                 self.state.q
             ],

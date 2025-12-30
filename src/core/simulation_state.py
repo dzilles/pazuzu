@@ -57,6 +57,7 @@ class SimulationState:
         # Time Integration Buffers
         self.q_old = wp.zeros(self.pool_shape, dtype=dtype, device=device)
         self.q_temp = wp.zeros(self.pool_shape, dtype=dtype, device=device)
+        self.q_accum = wp.zeros(self.pool_shape, dtype=dtype, device=device)
         
         # Optional Filter Buffer
         self.filter_buffer = None
