@@ -23,6 +23,8 @@ class NumericsConfig(BaseModel):
     cfl: float = Field(default=0.4, gt=0, description="CFL number (must be > 0)")
     polynomial_order: int = Field(default=1, ge=0, description="Polynomial degree for DG")
     precision: Literal["single", "double"] = Field(default="single", description="Floating point precision (single or double)")
+    flux: Literal["rusanov", "hllc"] = Field(default="rusanov", description="Numerical flux function")
+    time_integrator: Literal["ssp_rk3", "rk4"] = Field(default="ssp_rk3", description="Time integration scheme")
     dt_min: float = Field(default=1e-9, gt=0, description="Minimum allowed timestep")
     dt_init: float = Field(default=0.001, gt=0, description="Initial timestep")
     dt_static: Optional[float] = Field(default=None, gt=0, description="Optional fixed timestep to override CFL-based DT")

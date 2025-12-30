@@ -117,6 +117,12 @@ class PazuzuSolver:
         self.params.cp = 1.0
         self.params.epsilon = 1.0e-10
 
+        # Flux Type
+        if hasattr(self.config.numerics, "flux") and self.config.numerics.flux == "hllc":
+             self.params.flux_type = 1 # HLLC
+        else:
+             self.params.flux_type = 0 # Rusanov
+
         # Note: We do NOT wrap this in wp.array(). 
         # We pass the 'self.params' object directly to wp.launch inputs.
 
@@ -241,12 +247,20 @@ class PazuzuSolver:
             if dt < self.config.numerics.dt_min:
                 raise RuntimeError(f"Aborting: Computed timestep {dt:.2e} is smaller than dt_min {self.config.numerics.dt_min:.2e}. The simulation may be unstable.")
 
-            self.integrator.step_ssp_rk3(
-                self.compute_rhs,
-                dt,
-                t,
-                self.quadtree.num_blocks
-            )
+            if self.config.numerics.time_integrator == "rk4":
+                self.integrator.step_rk4(
+                    self.compute_rhs,
+                    dt,
+                    t,
+                    self.quadtree.num_blocks
+                )
+            else:
+                self.integrator.step_ssp_rk3(
+                    self.compute_rhs,
+                    dt,
+                    t,
+                    self.quadtree.num_blocks
+                )
             
             t += dt
             self.state.t = t

@@ -46,8 +46,8 @@ def periodic_vortex(x, y, t=0.0, Lx=10.0, Ly=10.0):
     return rho, u, v, p
 
 def run_study():
-    # depths = [3, 4, 5] -> Res = 8, 16, 32 blocks per edge
-    depths = [3, 4, 5] 
+    # depths = [6, 7, 8] -> Res = 64, 128, 256 blocks per edge
+    depths = [6, 7, 8] 
     orders = [1, 2, 3]
     
     all_results = {}
@@ -63,7 +63,8 @@ def run_study():
 
     # Ensure precision is double for convergence study
     base_config['numerics']['precision'] = "double"
-    base_config['simulation']['device'] = "cpu" 
+    base_config['simulation']['device'] = "cuda" 
+    base_config['amr']['max_blocks'] = 70000 
     
     for P in orders:
         print(f"\n========================================")
@@ -90,6 +91,8 @@ def run_study():
             config['amr'] = base_config['amr'].copy()
             
             config['numerics']['polynomial_order'] = P
+            config['numerics']['cfl'] = 0.01
+            config['numerics']['flux'] = "hllc"
             config['amr']['initial_depth'] = depth
             config['io']['output_dir'] = run_output_dir
             

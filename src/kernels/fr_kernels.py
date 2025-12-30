@@ -4,6 +4,12 @@ from src.kernels import boundary_conditions as bc
 
 from typing import Any
 
+@wp.func
+def compute_interface_flux(q_L: Any, q_R: Any, nx: Any, ny: Any, params: Any):
+    if params.flux_type == 1:
+        return euler.hllc_flux(q_L, q_R, nx, ny, params)
+    return euler.rusanov_flux(q_L, q_R, nx, ny, params)
+
 @wp.kernel
 def compute_fr_update(
     q: wp.array(dtype=Any, ndim=2),
@@ -87,7 +93,7 @@ def compute_fr_update(
         idx_neigh = j * N1 + (N1 - 1)
         q_L_ghost = q[neigh_L, idx_neigh]
         
-    F_star_L = euler.rusanov_flux(q_L_ghost, q_L_internal, one, zero, params)
+    F_star_L = compute_interface_flux(q_L_ghost, q_L_internal, one, zero, params)
     corr_x = (F_star_L - f_L_internal) * dg_L[i]
     
     # Right Interface (i=N1-1)
@@ -102,7 +108,7 @@ def compute_fr_update(
         idx_neigh = j * N1 + 0
         q_R_ghost = q[neigh_R, idx_neigh]
         
-    F_star_R = euler.rusanov_flux(q_R_internal, q_R_ghost, one, zero, params)
+    F_star_R = compute_interface_flux(q_R_internal, q_R_ghost, one, zero, params)
     corr_x += (F_star_R - f_R_internal) * dg_R[i]
     
     corr_x *= inv_J_x
@@ -121,7 +127,7 @@ def compute_fr_update(
         q_B_ghost = q[neigh_B, idx_neigh]
         
     # Flux in Y direction, Normal=(0,1)
-    G_star_B = euler.rusanov_flux(q_B_ghost, q_B_internal, zero, one, params)
+    G_star_B = compute_interface_flux(q_B_ghost, q_B_internal, zero, one, params)
     corr_y = (G_star_B - g_B_internal) * dg_L[j] # Uses Left correction poly for Bottom (-1)
     
     # Top Interface (j=N1-1)
@@ -136,7 +142,7 @@ def compute_fr_update(
         idx_neigh = 0 * N1 + i
         q_T_ghost = q[neigh_T, idx_neigh]
         
-    G_star_T = euler.rusanov_flux(q_T_internal, q_T_ghost, zero, one, params)
+    G_star_T = compute_interface_flux(q_T_internal, q_T_ghost, zero, one, params)
     corr_y += (G_star_T - g_T_internal) * dg_R[j] # Uses Right correction poly for Top (+1)
     
     corr_y *= inv_J_y
