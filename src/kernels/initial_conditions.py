@@ -12,7 +12,9 @@ def init_isentropic_vortex(
     params: Any,
     t: Any,
     beta: Any,
-    radius: Any
+    radius: Any,
+    center_x: Any,
+    center_y: Any
 ):
     # Launch dimensions: (num_active, Np)
     block_idx, node_idx = wp.tid()
@@ -24,8 +26,8 @@ def init_isentropic_vortex(
     
     # Vortex Parameters
     # Advecting with u_inf, v_inf
-    x0 = params.u_inf * t 
-    y0 = params.v_inf * t
+    x0 = center_x + params.u_inf * t 
+    y0 = center_y + params.v_inf * t
     gamma = params.gamma
     
     dx = xx - x0

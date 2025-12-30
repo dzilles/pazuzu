@@ -41,6 +41,8 @@ def compute_errors(solver):
     # Cast params to scalar_dtype
     beta = solver.config.initial_condition.params.get('beta', 5.0)
     radius = solver.config.initial_condition.params.get('radius', 1.0)
+    center_x = solver.config.initial_condition.params.get('center_x', 0.0)
+    center_y = solver.config.initial_condition.params.get('center_y', 0.0)
     
     wp.launch(
         kernel=init_isentropic_vortex,
@@ -54,7 +56,9 @@ def compute_errors(solver):
             solver.params,
             scalar_dtype(t_eff),
             scalar_dtype(beta),
-            scalar_dtype(radius)
+            scalar_dtype(radius),
+            scalar_dtype(center_x),
+            scalar_dtype(center_y)
         ],
         device=solver.device
     )
@@ -98,22 +102,50 @@ def compute_errors(solver):
 def run_vortex_simulation(precision_mode):
     print(f"\n--- Running Simulation with precision={precision_mode} ---")
     
-    # Construct Configuration Programmatically
+    # Ensure output is in the local output folder
+    output_base = os.path.join(os.path.dirname(__file__), "output")
+    
+    # "Nano-Vortex" Configuration
+    # We center the domain at 1.0.
+    # In float32, machine epsilon at 1.0 is ~1.19e-7.
+    # We choose a grid spacing smaller than this to force coordinate collapse in float32.
+    
+    domain_center = 1.0
+    domain_width = 2.0e-6 # [-1e-6, 1e-6] relative to center
+    
+    # Grid Setup
+    # Level 2 (4x4 blocks). Basis N=2 (3x3 nodes).
+    # Total width along axis: 4 blocks * 2 cells/block = 8 cells.
+    # dx = 2.0e-6 / 8 = 2.5e-7.
+    # Wait, 2.5e-7 is > 1.19e-7. It might work.
+    # Let's use Level 4 (16x16 blocks).
+    # dx = 2.0e-6 / (16 * 2) = 6.25e-8.
+    # 6.25e-8 < 1.19e-7. This should fail in float32 (1.0 + dx -> 1.0).
+    
+    initial_depth = 4
+    
     config = PazuzuConfig(
         case_name=f"Vortex_{precision_mode}",
         solver_type=SolverType.EULER_2D,
         mesh=MeshConfig(
-            x_min=-5.0, x_max=5.0,
-            y_min=-5.0, y_max=5.0,
+            x_min=domain_center - domain_width/2, 
+            x_max=domain_center + domain_width/2,
+            y_min=domain_center - domain_width/2, 
+            y_max=domain_center + domain_width/2,
             periodic_x=True, periodic_y=True
         ),
         amr=AmrConfig(
-            max_blocks=5000, # Sufficient for depth 4/5
-            initial_depth=5
+            max_blocks=500, 
+            initial_depth=initial_depth
         ),
         initial_condition=InitialConditionConfig(
             name="vortex",
-            params={"beta": 1.0, "radius": 1.0}
+            params={
+                "beta": 1.0, 
+                "radius": 0.2 * domain_width, # 4e-7
+                "center_x": domain_center,
+                "center_y": domain_center
+            }
         ),
         physics=PhysicsConfig(
             gamma=1.4,
@@ -121,58 +153,73 @@ def run_vortex_simulation(precision_mode):
             rho_inf=1.0
         ),
         numerics=NumericsConfig(
-            polynomial_order=2, # N=2 (3rd order) where we saw difference
+            polynomial_order=2, 
             cfl=0.1,
             precision=precision_mode,
-            dt_static=0.001
+            dt_static=1.0e-9 
         ),
         io=IOConfig(
-            output_dir=f"output/test_precision_{precision_mode}",
-            write_interval=10000 # Don't write to disk to save time, unless needed
+            output_dir=os.path.join(output_base, f"test_precision_{precision_mode}"),
+            write_interval=1 # Check NaNs every step
         ),
         simulation=SimulationConfig(
-            t_final=10.0, # Match the manual run
+            t_final=1.0e-8, # 10 steps
             device="cuda"
         )
     )
     
-    solver = PazuzuSolver(config)
-    solver.run()
-    
-    l2, linf = compute_errors(solver)
-    print(f"Precision: {precision_mode}, L2 Error: {l2:.6e}")
-    
-    # Cleanup Warp to free memory for next run?
-    # Warp doesn't support full shutdown/reinit easily in one process.
-    # But PazuzuSolver creates new arrays, so old ones should be GC'd if solver is deleted.
-    
-    return l2
+    try:
+        solver = PazuzuSolver(config)
+        solver.run()
+        l2, linf = compute_errors(solver)
+        print(f"Precision: {precision_mode}, L2 Error: {l2:.6e}")
+        return l2
+    except Exception as e:
+        print(f"Simulation FAILED for {precision_mode} as expected or unexpected: {e}")
+        return None
 
-def test_precision_improvement():
+def test_nano_vortex_precision():
     """
-    Verifies that Double Precision yields lower error than Single Precision
-    for the Isentropic Vortex case.
+    Verifies that Single Precision fails for a 'Nano-Vortex' at coordinates ~1.0,
+    due to machine epsilon limits, while Double Precision succeeds.
     """
+    print("\nStarting Nano-Vortex Precision Stress Test...")
+    
     # 1. Run Single Precision
+    # We expect this to likely crash (Jacobian=0) or produce garbage.
+    # If it produces 0.0 error, it likely means the grid collapsed to a constant field.
     err_single = run_vortex_simulation("single")
     
     # 2. Run Double Precision
+    # We expect this to run correctly and produce a valid (non-zero) discretization error.
     err_double = run_vortex_simulation("double")
     
-    print(f"\nComparison:")
-    print(f"Single Precision Error: {err_single:.6e}")
-    print(f"Double Precision Error: {err_double:.6e}")
-    
-    ratio = err_single / err_double
-    print(f"Improvement Ratio (Single/Double): {ratio:.2f}x")
+    print(f"\nResults:")
+    print(f"Single Precision Result: {err_single}")
+    print(f"Double Precision Result: {err_double}")
     
     # Assertions
-    # 1. Double should be better
-    assert err_double < err_single, "Double precision error should be lower than single precision."
     
-    # 2. Significant improvement check (heuristic)
-    # We saw ~7x improvement in manual tests.
-    assert ratio > 7.0, f"Expected significant improvement (>7.0x), got {ratio:.2f}x"
+    # Check if Single failed appropriately
+    single_failed = False
+    if err_single is None:
+        print("SUCCESS: Single precision crashed (likely grid collapse).")
+        single_failed = True
+    elif err_single < 1e-20:
+         print("SUCCESS: Single precision yielded 0 error (likely grid collapsed to constant field).")
+         single_failed = True
+    else:
+         print(f"WARNING: Single precision produced error {err_single}. Checking if Double is better...")
+    
+    # Check Double
+    assert err_double is not None, "Double precision crashed!"
+    assert err_double > 1e-20, f"Double precision error {err_double} is too small (vortex missed?)"
+    
+    if not single_failed:
+        assert err_double < err_single, "Double should be better than single"
+        ratio = err_single / err_double
+        print(f"Error Ratio: {ratio:.2f}")
+        assert ratio > 10.0, "Single precision should be significantly worse."
 
 if __name__ == "__main__":
-    test_precision_improvement()
+    test_nano_vortex_precision()

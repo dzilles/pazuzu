@@ -138,7 +138,9 @@ class PazuzuSolver:
         if ic_name == "vortex":
             beta = params.get("beta", 5.0)
             radius = params.get("radius", 1.0)
-            print(f"Applying Isentropic Vortex IC (beta={beta}, radius={radius})...")
+            center_x = params.get("center_x", 0.0)
+            center_y = params.get("center_y", 0.0)
+            print(f"Applying Isentropic Vortex IC (beta={beta}, radius={radius}, center={center_x},{center_y})...")
             wp.launch(
                 kernel=init_isentropic_vortex,
                 dim=(self.quadtree.num_blocks, self.basis.Np),
@@ -151,7 +153,9 @@ class PazuzuSolver:
                     self.params,
                     self.scalar_dtype(0.0),
                     self.scalar_dtype(beta),
-                    self.scalar_dtype(radius)
+                    self.scalar_dtype(radius),
+                    self.scalar_dtype(center_x),
+                    self.scalar_dtype(center_y)
                 ],
                 device=self.device
             )
@@ -262,6 +266,11 @@ class PazuzuSolver:
 
                 print(f"Step {self.state.step}, Time {t:.4f}, dt {dt:.6f}")
                 self.writer.write_step(self.state.step, t)
+
+        # Write final state if not already written
+        if self.state.step % log_freq != 0:
+            print(f"Final Step {self.state.step}, Time {t:.4f}")
+            self.writer.write_step(self.state.step, t)
 
 if __name__ == "__main__":
     import sys

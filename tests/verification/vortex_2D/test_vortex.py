@@ -49,7 +49,9 @@ def compute_errors(solver):
             solver.params,
             solver.scalar_dtype(t_eff),
             solver.scalar_dtype(float(solver.config.initial_condition.params.get('beta', 5.0))),
-            solver.scalar_dtype(float(solver.config.initial_condition.params.get('radius', 1.0)))
+            solver.scalar_dtype(float(solver.config.initial_condition.params.get('radius', 1.0))),
+            solver.scalar_dtype(float(solver.config.initial_condition.params.get('center_x', 0.0))),
+            solver.scalar_dtype(float(solver.config.initial_condition.params.get('center_y', 0.0)))
         ],
         device=solver.device
     )
