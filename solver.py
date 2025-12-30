@@ -225,7 +225,10 @@ class PazuzuSolver:
         t_final = self.config.simulation.t_final
         max_steps = self.config.simulation.max_steps
         
-        while t < t_final:
+        # Tolerance to prevent one extra step due to FP errors
+        tol = 1e-7
+
+        while t < t_final - tol:
             if self.state.step >= max_steps:
                 print(f"Reached maximum steps ({max_steps}). Saving final state and exiting.")
                 if self.state.step % log_freq != 0:

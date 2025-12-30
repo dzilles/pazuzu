@@ -108,19 +108,11 @@ def run_vortex_simulation(precision_mode):
     # "Nano-Vortex" Configuration
     # We center the domain at 1.0.
     # In float32, machine epsilon at 1.0 is ~1.19e-7.
-    # We choose a grid spacing smaller than this to force coordinate collapse in float32.
+    # dx = 1e-3 / (16 * 2) = 3.125e-5.
+    # At 1e6, float32 epsilon is ~0.0625. dx << epsilon.
     
-    domain_center = 1.0
-    domain_width = 2.0e-6 # [-1e-6, 1e-6] relative to center
-    
-    # Grid Setup
-    # Level 2 (4x4 blocks). Basis N=2 (3x3 nodes).
-    # Total width along axis: 4 blocks * 2 cells/block = 8 cells.
-    # dx = 2.0e-6 / 8 = 2.5e-7.
-    # Wait, 2.5e-7 is > 1.19e-7. It might work.
-    # Let's use Level 4 (16x16 blocks).
-    # dx = 2.0e-6 / (16 * 2) = 6.25e-8.
-    # 6.25e-8 < 1.19e-7. This should fail in float32 (1.0 + dx -> 1.0).
+    domain_center = 1.0e6
+    domain_width = 1.0e-3
     
     initial_depth = 4
     
@@ -141,8 +133,8 @@ def run_vortex_simulation(precision_mode):
         initial_condition=InitialConditionConfig(
             name="vortex",
             params={
-                "beta": 1.0, 
-                "radius": 0.2 * domain_width, # 4e-7
+                "beta": 5.0, 
+                "radius": 0.2 * domain_width, 
                 "center_x": domain_center,
                 "center_y": domain_center
             }
@@ -156,14 +148,14 @@ def run_vortex_simulation(precision_mode):
             polynomial_order=2, 
             cfl=0.1,
             precision=precision_mode,
-            dt_static=1.0e-9 
+            dt_static=None # Use dynamic DT
         ),
         io=IOConfig(
             output_dir=os.path.join(output_base, f"test_precision_{precision_mode}"),
-            write_interval=1 # Check NaNs every step
+            write_interval=100
         ),
         simulation=SimulationConfig(
-            t_final=1.0e-8, # 10 steps
+            t_final=domain_width / 1.0, # Time to cross domain
             device="cuda"
         )
     )
