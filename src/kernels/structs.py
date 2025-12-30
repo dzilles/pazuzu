@@ -19,6 +19,7 @@ class EquationParams32:
     p_inf: wp.float32
     epsilon: wp.float32
     flux_type: wp.int32
+    hllc_fallback: wp.int32
 
 @wp.struct
 class EquationParams64:
@@ -39,6 +40,7 @@ class EquationParams64:
     p_inf: wp.float64
     epsilon: wp.float64
     flux_type: wp.int32
+    hllc_fallback: wp.int32
 
 @wp.struct
 class BoundaryState32:

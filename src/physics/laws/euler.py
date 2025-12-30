@@ -29,8 +29,12 @@ def flux_x(q: Any, params: Any):
     rho = wp.max(q[0], zero + params.rho_floor)
     p = pressure(q, params)
     u = q[1] / rho
+    v = q[2] / rho
     
-    return bc.make_vec4_generic(q[1], q[1]*u + p, q[2]*u, (q[3] + p)*u)
+    # Ensure energy is consistent with floored pressure
+    E_consistent = p / (params.gamma - params.one) + params.half * rho * (u*u + v*v)
+    
+    return bc.make_vec4_generic(q[1], q[1]*u + p, q[2]*u, (E_consistent + p)*u)
 
 @wp.func
 def flux_y(q: Any, params: Any):
@@ -40,9 +44,13 @@ def flux_y(q: Any, params: Any):
     zero = q[0] - q[0]
     rho = wp.max(q[0], zero + params.rho_floor)
     p = pressure(q, params)
+    u = q[1] / rho
     v = q[2] / rho
     
-    return bc.make_vec4_generic(q[2], q[1]*v, q[2]*v + p, (q[3] + p)*v)
+    # Ensure energy is consistent with floored pressure
+    E_consistent = p / (params.gamma - params.one) + params.half * rho * (u*u + v*v)
+    
+    return bc.make_vec4_generic(q[2], q[1]*v, q[2]*v + p, (E_consistent + p)*v)
 
 @wp.func
 def rusanov_flux(q_L: Any, q_R: Any, nx: Any, ny: Any, params: Any):
@@ -120,9 +128,16 @@ def hllc_flux(q_L: Any, q_R: Any, nx: Any, ny: Any, params: Any):
         return F_R * nx + G_R * ny
         
     # Subsonic - Compute S_star
-    # Denominator check? Assume not zero for standard EOS.
-    rho_term = (p_R - p_L + rho_L * vn_L * (S_L - vn_L) - rho_R * vn_R * (S_R - vn_R))
+    # Denominator check
     denom = rho_L * (S_L - vn_L) - rho_R * (S_R - vn_R)
+    
+    # Check for singularity if fallback is enabled
+    if params.hllc_fallback == 1 and wp.abs(denom) < 1e-10:
+        # Print warning (Warp kernel print)
+        print("Warning: HLLC singularity detected. Switching to Rusanov.")
+        return rusanov_flux(q_L, q_R, nx, ny, params)
+
+    rho_term = (p_R - p_L + rho_L * vn_L * (S_L - vn_L) - rho_R * vn_R * (S_R - vn_R))
     S_star = rho_term / denom 
     
     # HLLC Flux

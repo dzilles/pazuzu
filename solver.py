@@ -123,6 +123,9 @@ class PazuzuSolver:
         else:
              self.params.flux_type = 0 # Rusanov
 
+        # HLLC Fallback
+        self.params.hllc_fallback = int(self.config.numerics.hllc_fallback)
+
         # Note: We do NOT wrap this in wp.array(). 
         # We pass the 'self.params' object directly to wp.launch inputs.
 
@@ -220,7 +223,13 @@ class PazuzuSolver:
         if max_wave_metric < 1e-12:
             return self.config.numerics.dt_init # Fallback or Initial
             
-        dt = self.config.numerics.cfl / max_wave_metric
+        # Scaling CFL based on polynomial order P
+        # For DG methods, stability requires CFL proportional to 1/(2P+1)
+        p_order = self.basis.N
+        scaling = 1.0 / (2.0 * float(p_order) + 1.0)
+        effective_cfl = self.config.numerics.cfl * scaling
+
+        dt = effective_cfl / max_wave_metric
         return dt
 
     def run(self):
