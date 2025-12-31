@@ -1,17 +1,16 @@
 import warp as wp
 from typing import Any
 import src.kernels.boundary_conditions as bc
-from src.kernels.structs import EquationParams32, EquationParams64
 
 @wp.kernel
 def compute_max_wave_speed(
-    q: wp.array(dtype=Any, ndim=2),
-    active_indices: wp.array(dtype=int),
+    q: Any,
+    active_indices: Any,
     num_active: int,
-    block_levels: wp.array(dtype=int),
+    block_levels: Any,
     root_bounds: Any, # Also Any for vec4f/vec4d
     params: Any,
-    max_inv_dt: wp.array(dtype=Any) # Output: size 1
+    max_inv_dt: Any # Output: size 1
 ):
     tid = wp.tid()
     Np = q.shape[1]

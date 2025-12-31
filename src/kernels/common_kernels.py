@@ -3,10 +3,10 @@ from typing import Any
 
 @wp.kernel
 def rk_stage_1(
-    q: wp.array(dtype=Any, ndim=2),
-    rhs: wp.array(dtype=Any, ndim=2),
+    q: Any,
+    rhs: Any,
     dt: Any,
-    q_out: wp.array(dtype=Any, ndim=2)
+    q_out: Any
 ):
     """
     Performs the first stage of the Low-Storage SSP-RK3 time integration scheme.
@@ -16,11 +16,11 @@ def rk_stage_1(
 
 @wp.kernel
 def rk_stage_2(
-    q: wp.array(dtype=Any, ndim=2),      # Q_n (Initial state)
-    q_1: wp.array(dtype=Any, ndim=2),    # Q(1) from Stage 1
-    rhs: wp.array(dtype=Any, ndim=2),    # RHS(Q(1))
+    q: Any,      # Q_n (Initial state)
+    q_1: Any,    # Q(1) from Stage 1
+    rhs: Any,    # RHS(Q(1))
     dt: Any,
-    q_out: wp.array(dtype=Any, ndim=2),   # Destination for Q(2)
+    q_out: Any,   # Destination for Q(2)
     c1: Any, # 0.75
     c2: Any  # 0.25
 ):
@@ -34,11 +34,11 @@ def rk_stage_2(
 
 @wp.kernel
 def rk_stage_3(
-    q: wp.array(dtype=Any, ndim=2),      # Q_n
-    q_2: wp.array(dtype=Any, ndim=2),    # Q(2) from Stage 2
-    rhs: wp.array(dtype=Any, ndim=2),    # RHS(Q(2))
+    q: Any,      # Q_n
+    q_2: Any,    # Q(2) from Stage 2
+    rhs: Any,    # RHS(Q(2))
     dt: Any,
-    q_out: wp.array(dtype=Any, ndim=2),   # Destination for Q(n+1)
+    q_out: Any,   # Destination for Q(n+1)
     c1: Any, # 1/3
     c2: Any  # 2/3
     ):
@@ -52,9 +52,9 @@ def rk_stage_3(
 
 @wp.kernel
 def apply_filter_matrix(
-    q: wp.array(dtype=Any, ndim=2),
-    filter_matrix: wp.array(dtype=Any, ndim=2),
-    q_out: wp.array(dtype=Any, ndim=2)
+    q: Any,
+    filter_matrix: Any,
+    q_out: Any
 ):
     """
     Applies the spectral filter matrix to the state vector.
@@ -76,10 +76,10 @@ def apply_filter_matrix(
 
 @wp.kernel
 def rk4_stage_update(
-    q_old: wp.array(dtype=Any, ndim=2),
-    rhs: wp.array(dtype=Any, ndim=2),
-    q_accum: wp.array(dtype=Any, ndim=2),
-    q_next: wp.array(dtype=Any, ndim=2),
+    q_old: Any,
+    rhs: Any,
+    q_accum: Any,
+    q_next: Any,
     dt: Any,
     weight_accum: Any,
     weight_next: Any
@@ -97,8 +97,8 @@ def rk4_stage_update(
 
 @wp.kernel
 def rk4_final_update(
-    rhs: wp.array(dtype=Any, ndim=2),
-    q_accum: wp.array(dtype=Any, ndim=2),
+    rhs: Any,
+    q_accum: Any,
     dt: Any,
     weight_accum: Any
 ):
@@ -112,8 +112,8 @@ def rk4_final_update(
 
 @wp.kernel
 def check_nan(
-    q: wp.array(dtype=Any, ndim=2),
-    has_nan: wp.array(dtype=wp.int32, ndim=1)
+    q: Any,
+    has_nan: Any
 ):
     e, i = wp.tid()
     val = q[e, i]
@@ -124,9 +124,9 @@ def check_nan(
 
 @wp.kernel
 def check_nan_indirect(
-    q: wp.array(dtype=Any, ndim=2),
-    active_indices: wp.array(dtype=int),
-    has_nan: wp.array(dtype=wp.int32, ndim=1)
+    q: Any,
+    active_indices: Any,
+    has_nan: Any
 ):
     tid = wp.tid()
     Np = q.shape[1]
@@ -144,12 +144,10 @@ def check_nan_indirect(
 
 @wp.kernel
 def check_nan_vec2(
-    q: wp.array(dtype=Any, ndim=2),
-    has_nan: wp.array(dtype=wp.int32, ndim=1)
+    q: Any,
+    has_nan: Any
 ):
     e, i = wp.tid()
     val = q[e, i]
     if wp.isnan(val[0]) or wp.isnan(val[1]) or wp.isinf(val[0]) or wp.isinf(val[1]):
         wp.atomic_add(has_nan, 0, 1)
-
-

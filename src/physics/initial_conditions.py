@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Callable
 
 def vortex(x, y, t=0.0, **kwargs):
     """
@@ -209,7 +210,7 @@ def get_ic_function(name: str):
 
 
 
-def register_ic(name: str, func: callable):
+def register_ic(name: str, func: Callable):
 
     """Registers a new initial condition function."""
 

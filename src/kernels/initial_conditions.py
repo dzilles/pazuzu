@@ -1,13 +1,13 @@
 import warp as wp
 from src.kernels import boundary_conditions as bc
-from typing import Any
+from typing import Any, cast, cast
 
 @wp.kernel
 def init_isentropic_vortex(
-    x: wp.array(dtype=Any, ndim=2),
-    y: wp.array(dtype=Any, ndim=2),
-    q: wp.array(dtype=Any, ndim=2),
-    active_indices: wp.array(dtype=int),
+    x: Any,
+    y: Any,
+    q: Any,
+    active_indices: Any,
     num_active: int,
     params: Any,
     t: Any,

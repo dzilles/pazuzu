@@ -12,18 +12,18 @@ def compute_interface_flux(q_L: Any, q_R: Any, nx: Any, ny: Any, params: Any):
 
 @wp.kernel
 def compute_fr_update(
-    q: wp.array(dtype=Any, ndim=2),
-    active_indices: wp.array(dtype=int),
-    neighbors: wp.array(dtype=int, ndim=2),
+    q: Any,
+    active_indices: Any,
+    neighbors: Any,
     num_active: int,
-    rhs: wp.array(dtype=Any, ndim=2),
+    rhs: Any,
     # Geometry
-    nodes_1d: wp.array(dtype=Any),
-    D1D: wp.array(dtype=Any, ndim=2),
-    dg_L: wp.array(dtype=Any),
-    dg_R: wp.array(dtype=Any),
+    nodes_1d: Any,
+    D1D: Any,
+    dg_L: Any,
+    dg_R: Any,
     root_bounds: Any,
-    block_levels: wp.array(dtype=int),
+    block_levels: Any,
     # Physics
     params: Any, 
     t: Any

@@ -1,5 +1,5 @@
 import warp as wp
-from typing import Any
+from typing import Any, cast
 
 @wp.func
 def part1by1(n: int):
@@ -32,7 +32,7 @@ def morton_decode(code: int):
 
 @wp.kernel
 def generate_morton_codes(
-    codes: wp.array(dtype=wp.int32),
+    codes: Any,
     grid_dim: int
 ):
     tid = wp.tid()
@@ -44,12 +44,12 @@ from src.kernels import boundary_conditions as bc
 
 @wp.kernel
 def compute_block_coordinates(
-    morton_codes: wp.array(dtype=wp.int32),
+    morton_codes: Any,
     level: int,
     root_bounds: Any, # Changed from wp.array(dtype=Any) to Any
-    nodes_2d: wp.array(dtype=Any),
-    out_x: wp.array(dtype=Any, ndim=2),
-    out_y: wp.array(dtype=Any, ndim=2)
+    nodes_2d: Any,
+    out_x: Any,
+    out_y: Any
 ):
     """
     Computes physical coordinates for all nodes in active blocks.

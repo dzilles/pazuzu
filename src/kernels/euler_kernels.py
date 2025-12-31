@@ -1,7 +1,7 @@
 import warp as wp
 from src.kernels import boundary_conditions as bc
 from src.physics.laws.euler import pressure, flux_x, flux_y
-from typing import Any
+from typing import Any, cast
 
 # Use constants from BC module
 BC_WALL = bc.BC_WALL
@@ -60,10 +60,14 @@ def hllc_flux(
     
     # 1. Primitives and Normal Velocities
     rho_l = wp.max(q_l[0], zero + params.rho_floor)
-    u_l = q_l[1] / rho_l; v_l = q_l[2] / rho_l; p_l = pressure(q_l, params)
+    u_l = q_l[1] / rho_l
+    v_l = q_l[2] / rho_l
+    p_l = pressure(q_l, params)
     
     rho_r = wp.max(q_r[0], zero + params.rho_floor)
-    u_r = q_r[1] / rho_r; v_r = q_r[2] / rho_r; p_r = pressure(q_r, params)
+    u_r = q_r[1] / rho_r
+    v_r = q_r[2] / rho_r
+    p_r = pressure(q_r, params)
 
     un_l = u_l * nx + v_l * ny
     un_r = u_r * nx + v_r * ny
@@ -129,9 +133,9 @@ def hllc_flux(
 
 @wp.kernel
 def compute_nodal_fluxes(
-    q: wp.array(dtype=Any, ndim=2),      # (NumElems, Np)
-    f_x: wp.array(dtype=Any, ndim=2),    # Output
-    f_y: wp.array(dtype=Any, ndim=2),    # Output
+    q: Any,      # (NumElems, Np)
+    f_x: Any,    # Output
+    f_y: Any,    # Output
     params: Any
 ):
     """ Computes fluxes at basis nodes. """
@@ -142,15 +146,15 @@ def compute_nodal_fluxes(
 
 @wp.kernel
 def compute_volume_term(
-    f_x: wp.array(dtype=Any, ndim=2),    # (NumElems, Np) - Flux X
-    f_y: wp.array(dtype=Any, ndim=2),    # (NumElems, Np) - Flux Y
-    rhs: wp.array(dtype=Any, ndim=2),    # Output RHS
-    Dr: wp.array(dtype=Any, ndim=2),     # Differentiation Matrix r
-    Ds: wp.array(dtype=Any, ndim=2),     # Differentiation Matrix s
-    rx: wp.array(dtype=Any, ndim=2),     # Metric dr/dx (NumElems, Np)
-    ry: wp.array(dtype=Any, ndim=2),     # Metric dr/dy (NumElems, Np)
-    sx: wp.array(dtype=Any, ndim=2),     # Metric ds/dx (NumElems, Np)
-    sy: wp.array(dtype=Any, ndim=2),     # Metric ds/dy (NumElems, Np)
+    f_x: Any,    # (NumElems, Np) - Flux X
+    f_y: Any,    # (NumElems, Np) - Flux Y
+    rhs: Any,    # Output RHS
+    Dr: Any,     # Differentiation Matrix r
+    Ds: Any,     # Differentiation Matrix s
+    rx: Any,     # Metric dr/dx (NumElems, Np)
+    ry: Any,     # Metric dr/dy (NumElems, Np)
+    sx: Any,     # Metric ds/dx (NumElems, Np)
+    sy: Any,     # Metric ds/dy (NumElems, Np)
     Np: wp.int32,                        # Number of points per element
     params: Any
 ):
@@ -160,12 +164,16 @@ def compute_volume_term(
     e, i = wp.tid() # Element e, Node i
 
     # Load Metrics for this element and node
-    dr_dx = rx[e, i]; dr_dy = ry[e, i]
-    ds_dx = sx[e, i]; ds_dy = sy[e, i]
+    dr_dx = rx[e, i]
+    dr_dy = ry[e, i]
+    ds_dx = sx[e, i]
+    ds_dy = sy[e, i]
 
     zero_vec = f_x[e, i] - f_x[e, i]
-    dF_dr = zero_vec; dF_ds = zero_vec
-    dG_dr = zero_vec; dG_ds = zero_vec
+    dF_dr = zero_vec
+    dF_ds = zero_vec
+    dG_dr = zero_vec
+    dG_ds = zero_vec
 
     # Matrix-Vector Multiplication for derivatives
     for j in range(Np):
@@ -175,8 +183,10 @@ def compute_volume_term(
         dr = Dr[i, j]
         ds = Ds[i, j]
         
-        dF_dr += F_val * dr; dF_ds += F_val * ds
-        dG_dr += G_val * dr; dG_ds += G_val * ds
+        dF_dr += F_val * dr
+        dF_ds += F_val * ds
+        dG_dr += G_val * dr
+        dG_ds += G_val * ds
 
     # Apply Chain Rule
     dF_dx = dF_dr * dr_dx + dF_ds * ds_dx
@@ -188,9 +198,9 @@ def compute_volume_term(
 
 @wp.kernel
 def interpolate_to_quadrature(
-    q: wp.array(dtype=Any, ndim=2),      # (NumElems, Np)
-    q_q: wp.array(dtype=Any, ndim=2),    # (NumElems, Nq)
-    Interp: wp.array(dtype=Any, ndim=2), # (Nq, Np)
+    q: Any,      # (NumElems, Np)
+    q_q: Any,    # (NumElems, Nq)
+    Interp: Any, # (Nq, Np)
     Np: wp.int32
 ):
     """ Interpolates nodal values to quadrature points. """
@@ -203,10 +213,10 @@ def interpolate_to_quadrature(
 
 @wp.kernel
 def compute_projected_fluxes(
-    q_q: wp.array(dtype=Any, ndim=2),    # (NumElems, Nq)
-    f_x_n: wp.array(dtype=Any, ndim=2),  # (NumElems, Np) - Output Projected Flux X
-    f_y_n: wp.array(dtype=Any, ndim=2),  # (NumElems, Np) - Output Projected Flux Y
-    Proj: wp.array(dtype=Any, ndim=2),   # (Np, Nq)
+    q_q: Any,    # (NumElems, Nq)
+    f_x_n: Any,  # (NumElems, Np) - Output Projected Flux X
+    f_y_n: Any,  # (NumElems, Np) - Output Projected Flux Y
+    Proj: Any,   # (Np, Nq)
     Nq: wp.int32,
     params: Any
 ):
@@ -238,20 +248,20 @@ def compute_projected_fluxes(
 
 @wp.kernel
 def accumulate_interface_fluxes(
-    q: wp.array(dtype=Any, ndim=2),        
-    f_x: wp.array(dtype=Any, ndim=2),      # Projected Flux X
-    f_y: wp.array(dtype=Any, ndim=2),      # Projected Flux Y
-    rhs: wp.array(dtype=Any, ndim=2),      
-    connectivity: wp.array(dtype=wp.int32, ndim=2),
-    neighbor_face_indices: wp.array(dtype=wp.int32, ndim=2),
-    face_map: wp.array(dtype=wp.int32, ndim=2),
-    LIFT: wp.array(dtype=Any, ndim=2),
-    face_geo_factors: wp.array(dtype=Any, ndim=3), 
-    J: wp.array(dtype=Any, ndim=2),     
-    bc_mask: wp.array(dtype=wp.int32, ndim=2),
-    bc_data: wp.array(dtype=Any, ndim=1),
-    coord_x: wp.array(dtype=Any, ndim=2),
-    coord_y: wp.array(dtype=Any, ndim=2),
+    q: Any,        
+    f_x: Any,      # Projected Flux X
+    f_y: Any,      # Projected Flux Y
+    rhs: Any,      
+    connectivity: Any,
+    neighbor_face_indices: Any,
+    face_map: Any,
+    LIFT: Any,
+    face_geo_factors: Any, 
+    J: Any,     
+    bc_mask: Any,
+    bc_data: Any,
+    coord_x: Any,
+    coord_y: Any,
     Nfp: wp.int32,
     t: Any,
     ramp_time: Any,
@@ -353,8 +363,8 @@ def accumulate_interface_fluxes(
 
 @wp.kernel
 def compute_max_wave_speed(
-    q: wp.array(dtype=Any, ndim=2),      # Shape: (num_elements, Np)
-    max_speed: wp.array(dtype=Any, ndim=1), # Shape: (1,)
+    q: Any,      # Shape: (num_elements, Np)
+    max_speed: Any, # Shape: (1,)
     params: Any
 ):
     """
@@ -388,10 +398,10 @@ def compute_max_wave_speed(
 
 @wp.kernel
 def compute_cell_averages(
-    q: wp.array(dtype=Any, ndim=2),
-    q_avg: wp.array(dtype=Any, ndim=1),
-    weights: wp.array(dtype=Any, ndim=1),
-    J: wp.array(dtype=Any, ndim=2),
+    q: Any,
+    q_avg: Any,
+    weights: Any,
+    J: Any,
     Np: wp.int32,
     params: Any
 ):
@@ -420,10 +430,10 @@ def compute_cell_averages(
 
 @wp.kernel
 def compute_neighbor_min_max(
-    q_avg: wp.array(dtype=Any, ndim=1),
-    q_min: wp.array(dtype=Any, ndim=1),
-    q_max: wp.array(dtype=Any, ndim=1),
-    connectivity: wp.array(dtype=wp.int32, ndim=2),
+    q_avg: Any,
+    q_min: Any,
+    q_max: Any,
+    connectivity: Any,
     params: Any
 ):
     """
@@ -465,12 +475,12 @@ def minmod(a: Any, b: Any, c: Any):
 
 @wp.kernel
 def compute_gradients_green_gauss(
-    q_avg: wp.array(dtype=Any, ndim=1),
-    connectivity: wp.array(dtype=wp.int32, ndim=2),
-    face_geo_factors: wp.array(dtype=Any, ndim=3),
-    vol: wp.array(dtype=Any, ndim=1),
-    grad_x: wp.array(dtype=Any, ndim=1),
-    grad_y: wp.array(dtype=Any, ndim=1),
+    q_avg: Any,
+    connectivity: Any,
+    face_geo_factors: Any,
+    vol: Any,
+    grad_x: Any,
+    grad_y: Any,
     params: Any
 ):
     """
@@ -509,15 +519,15 @@ def compute_gradients_green_gauss(
 
 @wp.kernel
 def apply_minmod_limiter(
-    q: wp.array(dtype=Any, ndim=2),
-    q_avg: wp.array(dtype=Any, ndim=1),
-    q_min: wp.array(dtype=Any, ndim=1),
-    q_max: wp.array(dtype=Any, ndim=1),
-    grad_x: wp.array(dtype=Any, ndim=1),
-    grad_y: wp.array(dtype=Any, ndim=1),
-    centroid: wp.array(dtype=wp.vec2, ndim=1),
-    coord_x: wp.array(dtype=Any, ndim=2),
-    coord_y: wp.array(dtype=Any, ndim=2),
+    q: Any,
+    q_avg: Any,
+    q_min: Any,
+    q_max: Any,
+    grad_x: Any,
+    grad_y: Any,
+    centroid: Any,
+    coord_x: Any,
+    coord_y: Any,
     Np: wp.int32,
     params: Any
 ):
@@ -579,10 +589,10 @@ def apply_minmod_limiter(
 
 @wp.kernel
 def apply_barth_jespersen_limiter(
-    q: wp.array(dtype=Any, ndim=2),
-    q_avg: wp.array(dtype=Any, ndim=1),
-    q_min: wp.array(dtype=Any, ndim=1),
-    q_max: wp.array(dtype=Any, ndim=1),
+    q: Any,
+    q_avg: Any,
+    q_min: Any,
+    q_max: Any,
     Np: wp.int32,
     params: Any
 ):

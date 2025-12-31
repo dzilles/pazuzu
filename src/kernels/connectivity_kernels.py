@@ -1,5 +1,6 @@
 import warp as wp
 from src.kernels.grid_kernels import morton_decode, morton_encode
+from typing import Any
 
 # Simple Linear Probing Hash Map constants
 EMPTY = -1
@@ -15,7 +16,7 @@ def hash_int(k: int):
     return k
 
 @wp.func
-def map_insert(keys: wp.array(dtype=int), values: wp.array(dtype=int), capacity: int, key: int, value: int):
+def map_insert(keys: Any, values: Any, capacity: int, key: int, value: int):
     """
     Thread-safe insertion using Atomic Compare-And-Swap (CAS).
     """
@@ -47,7 +48,7 @@ def map_insert(keys: wp.array(dtype=int), values: wp.array(dtype=int), capacity:
             return
 
 @wp.func
-def map_lookup(keys: wp.array(dtype=int), values: wp.array(dtype=int), capacity: int, key: int):
+def map_lookup(keys: Any, values: Any, capacity: int, key: int):
     slot = hash_int(key) % capacity
     start_slot = slot
     
@@ -64,18 +65,18 @@ def map_lookup(keys: wp.array(dtype=int), values: wp.array(dtype=int), capacity:
             return EMPTY
 
 @wp.kernel
-def init_hash_map(keys: wp.array(dtype=int), values: wp.array(dtype=int)):
+def init_hash_map(keys: Any, values: Any):
     tid = wp.tid()
     keys[tid] = EMPTY
     values[tid] = EMPTY
 
 @wp.kernel
 def populate_hash_map(
-    morton_codes: wp.array(dtype=int),
-    active_indices: wp.array(dtype=int), 
+    morton_codes: Any,
+    active_indices: Any, 
     num_active: int,
-    map_keys: wp.array(dtype=int),
-    map_values: wp.array(dtype=int),
+    map_keys: Any,
+    map_values: Any,
     capacity: int
 ):
     tid = wp.tid()
@@ -89,13 +90,13 @@ def populate_hash_map(
 
 @wp.kernel
 def compute_neighbors(
-    morton_codes: wp.array(dtype=int),
-    active_indices: wp.array(dtype=int),
+    morton_codes: Any,
+    active_indices: Any,
     num_active: int,
-    map_keys: wp.array(dtype=int),
-    map_values: wp.array(dtype=int),
+    map_keys: Any,
+    map_values: Any,
     map_capacity: int,
-    out_neighbors: wp.array(dtype=int, ndim=2), 
+    out_neighbors: Any, 
     level: int,
     periodic_x: int, 
     periodic_y: int  
@@ -114,8 +115,10 @@ def compute_neighbors(
     nx = ix - 1
     ny = iy
     if nx < 0:
-        if periodic_x != 0: nx = grid_dim - 1
-        else: nx = -1 
+        if periodic_x != 0:
+            nx = grid_dim - 1
+        else:
+            nx = -1 
     
     n_idx = -1
     if nx >= 0:
@@ -131,8 +134,10 @@ def compute_neighbors(
     nx = ix + 1
     ny = iy
     if nx >= grid_dim:
-        if periodic_x != 0: nx = 0
-        else: nx = -1
+        if periodic_x != 0:
+            nx = 0
+        else:
+            nx = -1
     
     n_idx = -1
     if nx >= 0:
@@ -148,8 +153,10 @@ def compute_neighbors(
     nx = ix
     ny = iy - 1
     if ny < 0:
-        if periodic_y != 0: ny = grid_dim - 1
-        else: ny = -1
+        if periodic_y != 0:
+            ny = grid_dim - 1
+        else:
+            ny = -1
         
     n_idx = -1
     if ny >= 0:
@@ -165,8 +172,10 @@ def compute_neighbors(
     nx = ix
     ny = iy + 1
     if ny >= grid_dim:
-        if periodic_y != 0: ny = 0
-        else: ny = -1
+        if periodic_y != 0:
+            ny = 0
+        else:
+            ny = -1
         
     n_idx = -1
     if ny >= 0:
