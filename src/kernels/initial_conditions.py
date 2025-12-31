@@ -19,10 +19,10 @@ def init_isentropic_vortex(
     # Launch dimensions: (num_active, Np)
     block_idx, node_idx = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
-    pool_idx = active_indices[block_idx]
+    pool_idx = active_indices[block_idx]  # type: ignore # Warp type inference
     
-    xx = x[pool_idx, node_idx]
-    yy = y[pool_idx, node_idx]
+    xx = x[pool_idx, node_idx]  # type: ignore # Warp type inference
+    yy = y[pool_idx, node_idx]  # type: ignore # Warp type inference
     
     # Vortex Parameters
     # Advecting with u_inf, v_inf
@@ -70,4 +70,4 @@ def init_isentropic_vortex(
     
     E = p / (gamma - one) + half * rho * (u*u + v*v)
     
-    q[pool_idx, node_idx] = bc.make_vec4_generic(rho, rho*u, rho*v, E)
+    q[pool_idx, node_idx] = bc.make_vec4_generic(rho, rho*u, rho*v, E)  # type: ignore # Warp type inference

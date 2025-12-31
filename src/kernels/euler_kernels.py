@@ -140,9 +140,9 @@ def compute_nodal_fluxes(
 ):
     """ Computes fluxes at basis nodes. """
     e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
-    q_val = q[e, i]
-    f_x[e, i] = flux_x(q_val, params)
-    f_y[e, i] = flux_y(q_val, params)
+    q_val = q[e, i]  # type: ignore # Warp type inference
+    f_x[e, i] = flux_x(q_val, params)  # type: ignore # Warp type inference
+    f_y[e, i] = flux_y(q_val, params)  # type: ignore # Warp type inference
 
 @wp.kernel
 def compute_volume_term(
@@ -164,12 +164,12 @@ def compute_volume_term(
     e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime # Element e, Node i
 
     # Load Metrics for this element and node
-    dr_dx = rx[e, i]
-    dr_dy = ry[e, i]
-    ds_dx = sx[e, i]
-    ds_dy = sy[e, i]
+    dr_dx = rx[e, i]  # type: ignore # Warp type inference
+    dr_dy = ry[e, i]  # type: ignore # Warp type inference
+    ds_dx = sx[e, i]  # type: ignore # Warp type inference
+    ds_dy = sy[e, i]  # type: ignore # Warp type inference
 
-    zero_vec = f_x[e, i] - f_x[e, i]
+    zero_vec = f_x[e, i] - f_x[e, i]  # type: ignore # Warp type inference
     dF_dr = zero_vec
     dF_ds = zero_vec
     dG_dr = zero_vec
@@ -177,11 +177,11 @@ def compute_volume_term(
 
     # Matrix-Vector Multiplication for derivatives
     for j in range(Np):
-        F_val = f_x[e, j]
-        G_val = f_y[e, j]
+        F_val = f_x[e, j]  # type: ignore # Warp type inference
+        G_val = f_y[e, j]  # type: ignore # Warp type inference
         
-        dr = Dr[i, j]
-        ds = Ds[i, j]
+        dr = Dr[i, j]  # type: ignore # Warp type inference
+        ds = Ds[i, j]  # type: ignore # Warp type inference
         
         dF_dr += F_val * dr
         dF_ds += F_val * ds
@@ -192,7 +192,7 @@ def compute_volume_term(
     dF_dx = dF_dr * dr_dx + dF_ds * ds_dx
     dG_dy = dG_dr * dr_dy + dG_ds * ds_dy
     
-    rhs[e, i] = -(dF_dx + dG_dy) 
+    rhs[e, i] = -(dF_dx + dG_dy)   # type: ignore # Warp type inference 
 
 # --- Over-Integration Kernels ---
 
@@ -206,10 +206,10 @@ def interpolate_to_quadrature(
     """ Interpolates nodal values to quadrature points. """
     e, iq = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
-    val = q[e, 0] - q[e, 0]
+    val = q[e, 0] - q[e, 0]  # type: ignore # Warp type inference
     for j in range(Np):
-        val += q[e, j] * Interp[iq, j]
-    q_q[e, iq] = val
+        val += q[e, j] * Interp[iq, j]  # type: ignore # Warp type inference
+    q_q[e, iq] = val  # type: ignore # Warp type inference
 
 @wp.kernel
 def compute_projected_fluxes(
@@ -227,24 +227,24 @@ def compute_projected_fluxes(
     """
     e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime # Element e, Node i
 
-    zero_vec = q_q[e, 0] - q_q[e, 0]
+    zero_vec = q_q[e, 0] - q_q[e, 0]  # type: ignore # Warp type inference
     fx_acc = zero_vec
     fy_acc = zero_vec
 
     for iq in range(Nq):
-        q_val = q_q[e, iq]
+        q_val = q_q[e, iq]  # type: ignore # Warp type inference
         
         # Compute non-linear flux at quadrature point
         fx_q = flux_x(q_val, params)
         fy_q = flux_y(q_val, params)
         
         # Accumulate projection: sum_iq (Proj[i, iq] * F_q[iq])
-        p_val = Proj[i, iq]
+        p_val = Proj[i, iq]  # type: ignore # Warp type inference
         fx_acc += fx_q * p_val
         fy_acc += fy_q * p_val
 
-    f_x_n[e, i] = fx_acc
-    f_y_n[e, i] = fy_acc
+    f_x_n[e, i] = fx_acc  # type: ignore # Warp type inference
+    f_y_n[e, i] = fy_acc  # type: ignore # Warp type inference
 
 @wp.kernel
 def accumulate_interface_fluxes(
@@ -275,19 +275,19 @@ def accumulate_interface_fluxes(
     e, face_idx, k = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     # 1. Geometry and Connectivity
-    nx = face_geo_factors[e, face_idx, 0]
-    ny = face_geo_factors[e, face_idx, 1]
-    surf_J = face_geo_factors[e, face_idx, 2]
-    neighbor_e = connectivity[e, face_idx] 
+    nx = face_geo_factors[e, face_idx, 0]  # type: ignore # Warp type inference
+    ny = face_geo_factors[e, face_idx, 1]  # type: ignore # Warp type inference
+    surf_J = face_geo_factors[e, face_idx, 2]  # type: ignore # Warp type inference
+    neighbor_e = connectivity[e, face_idx]   # type: ignore # Warp type inference
     
-    vol_idx = face_map[face_idx, k]
+    vol_idx = face_map[face_idx, k]  # type: ignore # Warp type inference
     
     # --- 2. Load Data (States AND Fluxes) ---
-    q_inner = q[e, vol_idx]
+    q_inner = q[e, vol_idx]  # type: ignore # Warp type inference
     
     # Projected Flux from Interior
-    fx_in = f_x[e, vol_idx]
-    fy_in = f_y[e, vol_idx]
+    fx_in = f_x[e, vol_idx]  # type: ignore # Warp type inference
+    fy_in = f_y[e, vol_idx]  # type: ignore # Warp type inference
     f_n_inner = fx_in * nx + fy_in * ny
     
     q_outer = q_inner # Default
@@ -295,20 +295,20 @@ def accumulate_interface_fluxes(
     
     if neighbor_e >= 0:
         # Neighbor exists: Load its State AND its Projected Flux
-        neighbor_face = neighbor_face_indices[e, face_idx]
-        neighbor_node_idx = face_map[neighbor_face, k]
+        neighbor_face = neighbor_face_indices[e, face_idx]  # type: ignore # Warp type inference
+        neighbor_node_idx = face_map[neighbor_face, k]  # type: ignore # Warp type inference
         
-        q_outer = q[neighbor_e, neighbor_node_idx]
+        q_outer = q[neighbor_e, neighbor_node_idx]  # type: ignore # Warp type inference
         
-        fx_nb = f_x[neighbor_e, neighbor_node_idx]
-        fy_nb = f_y[neighbor_e, neighbor_node_idx]
+        fx_nb = f_x[neighbor_e, neighbor_node_idx]  # type: ignore # Warp type inference
+        fy_nb = f_y[neighbor_e, neighbor_node_idx]  # type: ignore # Warp type inference
         f_n_outer = fx_nb * nx + fy_nb * ny
         
     else:
         # Boundary: Compute Boundary State
-        bc_index = bc_mask[e, face_idx]
-        x = coord_x[e, vol_idx]
-        y = coord_y[e, vol_idx]
+        bc_index = bc_mask[e, face_idx]  # type: ignore # Warp type inference
+        x = coord_x[e, vol_idx]  # type: ignore # Warp type inference
+        y = coord_y[e, vol_idx]  # type: ignore # Warp type inference
         q_outer = bc.apply_boundary_condition(bc_index, bc_data, q_inner, nx, ny, x, y, t, ramp_time, params)
         
         # Boundary Flux: We use the analytical flux of the boundary state.
@@ -329,8 +329,8 @@ def accumulate_interface_fluxes(
     # For any solid wall (Slip or No-Slip), u_n = 0.
     # Therefore, Convective Mass Flux (index 0) and Energy Flux (index 3) MUST be zero.
     if neighbor_e < 0:
-        bc_index = bc_mask[e, face_idx]
-        bc_type = bc_data[bc_index].type
+        bc_index = bc_mask[e, face_idx]  # type: ignore # Warp type inference
+        bc_type = bc_data[bc_index].type  # type: ignore # Warp type inference
         
         # Check for any Wall type (Slip, No-Slip, Isothermal, Cylinder)
         is_wall = (bc_type == bc.BC_WALL) or \
@@ -352,14 +352,14 @@ def accumulate_interface_fluxes(
     
     # --- 5. LIFT Operator (Sparse Application) ---
     # For GLL Nodal basis, each face node maps to exactly one volume node.
-    lift_col = face_idx * Nfp + k
-    lift_val = LIFT[vol_idx, lift_col]
+    lift_col = face_idx * Nfp + k  # type: ignore # Warp type inference
+    lift_val = LIFT[vol_idx, lift_col]  # type: ignore # Warp type inference
     
     # Accumulate contribution to the volume node
     # Since corner nodes are shared by two faces, we use atomic_add
-    vol_J = J[e, vol_idx]
+    vol_J = J[e, vol_idx]  # type: ignore # Warp type inference
     val = (lift_val * flux_jump) / vol_J
-    wp.atomic_add(rhs, e, vol_idx, val)
+    wp.atomic_add(rhs, e, vol_idx, val)  # type: ignore # Warp type inference
 
 @wp.kernel
 def compute_max_wave_speed(
@@ -373,7 +373,7 @@ def compute_max_wave_speed(
     e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     # Load state
-    val = q[e, i]
+    val = q[e, i]  # type: ignore # Warp type inference
     zero = val[0] - val[0]
     rho = wp.max(val[0], zero + params.rho_floor)
     
@@ -392,7 +392,7 @@ def compute_max_wave_speed(
     wave_speed = vel_mag + c
     
     # Update global maximum atomically
-    wp.atomic_max(max_speed, 0, wave_speed)
+    wp.atomic_max(max_speed, 0, wave_speed)  # type: ignore # Warp type inference
 
 # --- Limiter Kernels ---
 
@@ -412,21 +412,21 @@ def compute_cell_averages(
     e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     # Use template to get correct zero vector and zero scalar of the same precision
-    zero_vec = q[e, 0] - q[e, 0]
-    zero_scalar = J[e, 0] - J[e, 0]
+    zero_vec = q[e, 0] - q[e, 0]  # type: ignore # Warp type inference
+    zero_scalar = J[e, 0] - J[e, 0]  # type: ignore # Warp type inference
     
     total_q = zero_vec
     total_vol = zero_scalar
     
     for j in range(Np):
-        w_j = weights[j]
-        J_j = J[e, j]
+        w_j = weights[j]  # type: ignore # Warp type inference
+        J_j = J[e, j]  # type: ignore # Warp type inference
         vol_j = w_j * J_j
         
-        total_q += q[e, j] * vol_j
+        total_q += q[e, j] * vol_j  # type: ignore # Warp type inference
         total_vol += vol_j
         
-    q_avg[e] = total_q / total_vol
+    q_avg[e] = total_q / total_vol  # type: ignore # Warp type inference
 
 @wp.kernel
 def compute_neighbor_min_max(
@@ -441,15 +441,15 @@ def compute_neighbor_min_max(
     """
     e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
-    avg_e = q_avg[e]
+    avg_e = q_avg[e]  # type: ignore # Warp type inference
     
     min_val = avg_e
     max_val = avg_e
     
     for face_idx in range(4):
-        neighbor_e = connectivity[e, face_idx]
+        neighbor_e = connectivity[e, face_idx]  # type: ignore # Warp type inference
         if neighbor_e >= 0:
-            avg_nb = q_avg[neighbor_e]
+            avg_nb = q_avg[neighbor_e]  # type: ignore # Warp type inference
             
             # Warp vector min/max
             # Note: For vec4, we want element-wise min/max
@@ -459,8 +459,8 @@ def compute_neighbor_min_max(
                 if avg_nb[c] > max_val[c]:
                     max_val = bc.set_vec4_generic(max_val, c, avg_nb[c])
                     
-    q_min[e] = min_val
-    q_max[e] = max_val
+    q_min[e] = min_val  # type: ignore # Warp type inference
+    q_max[e] = max_val  # type: ignore # Warp type inference
 
 @wp.func
 def minmod(a: Any, b: Any, c: Any):
@@ -489,23 +489,23 @@ def compute_gradients_green_gauss(
     """
     e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
-    avg_e = q_avg[e]
-    v_e = vol[e]
+    avg_e = q_avg[e]  # type: ignore # Warp type inference
+    v_e = vol[e]  # type: ignore # Warp type inference
     
     zero_vec = avg_e - avg_e
     gx = zero_vec
     gy = zero_vec
     
     for face_idx in range(4):
-        nx = face_geo_factors[e, face_idx, 0]
-        ny = face_geo_factors[e, face_idx, 1]
-        area = face_geo_factors[e, face_idx, 2]
+        nx = face_geo_factors[e, face_idx, 0]  # type: ignore # Warp type inference
+        ny = face_geo_factors[e, face_idx, 1]  # type: ignore # Warp type inference
+        area = face_geo_factors[e, face_idx, 2]  # type: ignore # Warp type inference
         
-        neighbor_e = connectivity[e, face_idx]
+        neighbor_e = connectivity[e, face_idx]  # type: ignore # Warp type inference
         
         q_nb = avg_e # Default for boundary (simple extrapolation)
         if neighbor_e >= 0:
-            q_nb = q_avg[neighbor_e]
+            q_nb = q_avg[neighbor_e]  # type: ignore # Warp type inference
         
         # Arithmetic average at face
         q_face = params.half * (avg_e + q_nb)
@@ -514,8 +514,8 @@ def compute_gradients_green_gauss(
         gx += q_face * nx * area
         gy += q_face * ny * area
         
-    grad_x[e] = gx / v_e
-    grad_y[e] = gy / v_e
+    grad_x[e] = gx / v_e  # type: ignore # Warp type inference
+    grad_y[e] = gy / v_e  # type: ignore # Warp type inference
 
 @wp.kernel
 def apply_minmod_limiter(
@@ -537,13 +537,13 @@ def apply_minmod_limiter(
     """
     e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
-    avg_e = q_avg[e]
-    gx = grad_x[e]
-    gy = grad_y[e]
-    c_e = centroid[e]
+    avg_e = q_avg[e]  # type: ignore # Warp type inference
+    gx = grad_x[e]  # type: ignore # Warp type inference
+    gy = grad_y[e]  # type: ignore # Warp type inference
+    c_e = centroid[e]  # type: ignore # Warp type inference
     
-    min_e = q_min[e]
-    max_e = q_max[e]
+    min_e = q_min[e]  # type: ignore # Warp type inference
+    max_e = q_max[e]  # type: ignore # Warp type inference
     
     # Use template to get correct zero/one scalars of the same precision
     zero_scalar = avg_e[0] - avg_e[0]
@@ -554,8 +554,8 @@ def apply_minmod_limiter(
     eps = params.rho_floor * params.rho_floor # Small tolerance
     
     for j in range(Np):
-        dx = coord_x[e, j] - c_e[0]
-        dy = coord_y[e, j] - c_e[1]
+        dx = coord_x[e, j] - c_e[0]  # type: ignore # Warp type inference
+        dy = coord_y[e, j] - c_e[1]  # type: ignore # Warp type inference
         
         # Reconstruction: q_j = q_avg + phi * (grad_q dot delta_x)
         dq = gx * dx + gy * dy
@@ -574,18 +574,18 @@ def apply_minmod_limiter(
     # Apply limited gradient reconstruction
     if phi < one_scalar:
         for j in range(Np):
-            dx = coord_x[e, j] - c_e[0]
-            dy = coord_y[e, j] - c_e[1]
-            q[e, j] = avg_e + phi * (gx * dx + gy * dy)
+            dx = coord_x[e, j] - c_e[0]  # type: ignore # Warp type inference
+            dy = coord_y[e, j] - c_e[1]  # type: ignore # Warp type inference
+            q[e, j] = avg_e + phi * (gx * dx + gy * dy)  # type: ignore # Warp type inference
     else:
         # Even if phi=1, we still reconstruct to ensure linear consistency 
         # (or we could just leave high-order DG nodes as is, but that's risky for shocks)
         # Actually, for DG, if phi=1 we usually keep the original DG polynomial.
         # But this is a slope limiter which reduces DG to P1-limited.
         for j in range(Np):
-            dx = coord_x[e, j] - c_e[0]
-            dy = coord_y[e, j] - c_e[1]
-            q[e, j] = avg_e + gx * dx + gy * dy
+            dx = coord_x[e, j] - c_e[0]  # type: ignore # Warp type inference
+            dy = coord_y[e, j] - c_e[1]  # type: ignore # Warp type inference
+            q[e, j] = avg_e + gx * dx + gy * dy  # type: ignore # Warp type inference
 
 @wp.kernel
 def apply_barth_jespersen_limiter(
@@ -602,12 +602,12 @@ def apply_barth_jespersen_limiter(
     """
     e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
-    avg_e = q_avg[e]
-    min_e = q_min[e]
-    max_e = q_max[e]
+    avg_e = q_avg[e]  # type: ignore # Warp type inference
+    min_e = q_min[e]  # type: ignore # Warp type inference
+    max_e = q_max[e]  # type: ignore # Warp type inference
     
     # Use template to get correct zero/one scalars of the same precision
-    zero_scalar = q_avg[e][0] - q_avg[e][0]
+    zero_scalar = q_avg[e][0] - q_avg[e][0]  # type: ignore # Warp type inference
     one_scalar = params.one
     
     # Initialize alpha to 1.0 (unlimited)
@@ -615,7 +615,7 @@ def apply_barth_jespersen_limiter(
     eps = params.rho_floor * params.rho_floor
     
     for j in range(Np):
-        q_j = q[e, j]
+        q_j = q[e, j]  # type: ignore # Warp type inference
         diff = q_j - avg_e
         
         for c in range(4):
@@ -634,4 +634,4 @@ def apply_barth_jespersen_limiter(
     # Apply limiting
     if alpha < one_scalar:
         for j in range(Np):
-            q[e, j] = avg_e + alpha * (q[e, j] - avg_e)
+            q[e, j] = avg_e + alpha * (q[e, j] - avg_e)  # type: ignore # Warp type inference

@@ -24,10 +24,10 @@ def compute_primitive_gradients_volume(
     """
     e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
-    dr_dx = rx[e, i]
-    dr_dy = ry[e, i]
-    ds_dx = sx[e, i]
-    ds_dy = sy[e, i]
+    dr_dx = rx[e, i]  # type: ignore # Warp type inference
+    dr_dy = ry[e, i]  # type: ignore # Warp type inference
+    ds_dx = sx[e, i]  # type: ignore # Warp type inference
+    ds_dy = sy[e, i]  # type: ignore # Warp type inference
     
     du_dr = params.one - params.one
     du_ds = params.one - params.one
@@ -37,14 +37,14 @@ def compute_primitive_gradients_volume(
     dT_ds = params.one - params.one
     
     for j in range(Np):
-        q_j = q[e, j]
+        q_j = q[e, j]  # type: ignore # Warp type inference
         rho_j = wp.max(q_j[0], params.rho_floor)
         u_j = q_j[1] / rho_j
         v_j = q_j[2] / rho_j
         T_j = temperature(q_j, params)
         
-        dr = Dr[i, j]
-        ds = Ds[i, j]
+        dr = Dr[i, j]  # type: ignore # Warp type inference
+        ds = Ds[i, j]  # type: ignore # Warp type inference
         
         du_dr += u_j * dr
         du_ds += u_j * ds
@@ -53,9 +53,9 @@ def compute_primitive_gradients_volume(
         dT_dr += T_j * dr
         dT_ds += T_j * ds
         
-    grad_u[e, i] = bc.make_vec2_generic(du_dr * dr_dx + du_ds * ds_dx, du_dr * dr_dy + du_ds * ds_dy)
-    grad_v[e, i] = bc.make_vec2_generic(dv_dr * dr_dx + dv_ds * ds_dx, dv_dr * dr_dy + dv_ds * ds_dy)
-    grad_T[e, i] = bc.make_vec2_generic(dT_dr * dr_dx + dT_ds * ds_dx, dT_dr * dr_dy + dT_ds * ds_dy)
+    grad_u[e, i] = bc.make_vec2_generic(du_dr * dr_dx + du_ds * ds_dx, du_dr * dr_dy + du_ds * ds_dy)  # type: ignore # Warp type inference
+    grad_v[e, i] = bc.make_vec2_generic(dv_dr * dr_dx + dv_ds * ds_dx, dv_dr * dr_dy + dv_ds * ds_dy)  # type: ignore # Warp type inference
+    grad_T[e, i] = bc.make_vec2_generic(dT_dr * dr_dx + dT_ds * ds_dx, dT_dr * dr_dy + dT_ds * ds_dy)  # type: ignore # Warp type inference
 
 @wp.kernel
 def compute_primitive_gradients_surface(
@@ -86,15 +86,15 @@ def compute_primitive_gradients_surface(
     e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     for face_idx in range(4):
-        nx = face_geo_factors[e, face_idx, 0]
-        ny = face_geo_factors[e, face_idx, 1]
-        surf_J = face_geo_factors[e, face_idx, 2]
+        nx = face_geo_factors[e, face_idx, 0]  # type: ignore # Warp type inference
+        ny = face_geo_factors[e, face_idx, 1]  # type: ignore # Warp type inference
+        surf_J = face_geo_factors[e, face_idx, 2]  # type: ignore # Warp type inference
         
-        neighbor_e = connectivity[e, face_idx]
+        neighbor_e = connectivity[e, face_idx]  # type: ignore # Warp type inference
         
         for k in range(Nfp):
-            node_idx_local = face_map[face_idx, k]
-            q_i = q[e, node_idx_local]
+            node_idx_local = face_map[face_idx, k]  # type: ignore # Warp type inference
+            q_i = q[e, node_idx_local]  # type: ignore # Warp type inference
             rho_i = wp.max(q_i[0], params.rho_floor)
             u_i = q_i[1] / rho_i
             v_i = q_i[2] / rho_i
@@ -105,17 +105,17 @@ def compute_primitive_gradients_surface(
             T_o = T_i
             
             if neighbor_e >= 0:
-                neighbor_face = neighbor_face_indices[e, face_idx]
-                neighbor_node_idx = face_map[neighbor_face, k]
-                q_o = q[neighbor_e, neighbor_node_idx]
+                neighbor_face = neighbor_face_indices[e, face_idx]  # type: ignore # Warp type inference
+                neighbor_node_idx = face_map[neighbor_face, k]  # type: ignore # Warp type inference
+                q_o = q[neighbor_e, neighbor_node_idx]  # type: ignore # Warp type inference
                 rho_o = wp.max(q_o[0], params.rho_floor)
                 u_o = q_o[1] / rho_o
                 v_o = q_o[2] / rho_o
                 T_o = temperature(q_o, params)
             else:
-                bc_index = bc_mask[e, face_idx]
-                x = coord_x[e, node_idx_local]
-                y = coord_y[e, node_idx_local]
+                bc_index = bc_mask[e, face_idx]  # type: ignore # Warp type inference
+                x = coord_x[e, node_idx_local]  # type: ignore # Warp type inference
+                y = coord_y[e, node_idx_local]  # type: ignore # Warp type inference
                 q_bc = bc.apply_boundary_condition(bc_index, bc_data, q_i, nx, ny, x, y, t, ramp_time, params)
                 rho_bc = wp.max(q_bc[0], params.rho_floor)
                 u_o = q_bc[1] / rho_bc
@@ -143,13 +143,13 @@ def compute_primitive_gradients_surface(
             
             lift_col = face_idx * Nfp + k
             for i in range(q.shape[1]):
-                lift_val = LIFT[i, lift_col]
-                inv_vol_J = params.one / J[e, i]
+                lift_val = LIFT[i, lift_col]  # type: ignore # Warp type inference
+                inv_vol_J = params.one / J[e, i]  # type: ignore # Warp type inference
                 
                 common = lift_val * inv_vol_J
-                grad_u[e, i] += bc.make_vec2_generic(jump_u * nx * common, jump_u * ny * common)
-                grad_v[e, i] += bc.make_vec2_generic(jump_v * nx * common, jump_v * ny * common)
-                grad_T[e, i] += bc.make_vec2_generic(jump_T * nx * common, jump_T * ny * common)
+                grad_u[e, i] += bc.make_vec2_generic(jump_u * nx * common, jump_u * ny * common)  # type: ignore # Warp type inference
+                grad_v[e, i] += bc.make_vec2_generic(jump_v * nx * common, jump_v * ny * common)  # type: ignore # Warp type inference
+                grad_T[e, i] += bc.make_vec2_generic(jump_T * nx * common, jump_T * ny * common)  # type: ignore # Warp type inference
 
 @wp.kernel
 def compute_viscous_volume_term(
@@ -172,27 +172,27 @@ def compute_viscous_volume_term(
     """
     e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
-    dr_dx = rx[e, i]
-    dr_dy = ry[e, i]
-    ds_dx = sx[e, i]
-    ds_dy = sy[e, i]
+    dr_dx = rx[e, i]  # type: ignore # Warp type inference
+    dr_dy = ry[e, i]  # type: ignore # Warp type inference
+    ds_dx = sx[e, i]  # type: ignore # Warp type inference
+    ds_dy = sy[e, i]  # type: ignore # Warp type inference
     
-    dFv_dr = q[e, i] - q[e, i]
-    dFv_ds = q[e, i] - q[e, i]
-    dGv_dr = q[e, i] - q[e, i]
-    dGv_ds = q[e, i] - q[e, i]
+    dFv_dr = q[e, i] - q[e, i]  # type: ignore # Warp type inference
+    dFv_ds = q[e, i] - q[e, i]  # type: ignore # Warp type inference
+    dGv_dr = q[e, i] - q[e, i]  # type: ignore # Warp type inference
+    dGv_ds = q[e, i] - q[e, i]  # type: ignore # Warp type inference
     
     for j in range(Np):
-        q_j = q[e, j]
-        gu_j = grad_u[e, j]
-        gv_j = grad_v[e, j]
-        gT_j = grad_T[e, j]
+        q_j = q[e, j]  # type: ignore # Warp type inference
+        gu_j = grad_u[e, j]  # type: ignore # Warp type inference
+        gv_j = grad_v[e, j]  # type: ignore # Warp type inference
+        gT_j = grad_T[e, j]  # type: ignore # Warp type inference
         
         Fv = viscous_flux_x(q_j, gu_j, gv_j, gT_j, params)
         Gv = viscous_flux_y(q_j, gu_j, gv_j, gT_j, params)
         
-        dr = Dr[i, j]
-        ds = Ds[i, j]
+        dr = Dr[i, j]  # type: ignore # Warp type inference
+        ds = Ds[i, j]  # type: ignore # Warp type inference
         
         dFv_dr += Fv * dr
         dFv_ds += Fv * ds
@@ -200,7 +200,7 @@ def compute_viscous_volume_term(
         dGv_ds += Gv * ds
         
     div_Fv = (dFv_dr * dr_dx + dFv_ds * ds_dx) + (dGv_dr * dr_dy + dGv_ds * ds_dy)
-    rhs[e, i] += div_Fv
+    rhs[e, i] += div_Fv  # type: ignore # Warp type inference
 
 @wp.kernel
 def compute_viscous_surface_term_kernel(

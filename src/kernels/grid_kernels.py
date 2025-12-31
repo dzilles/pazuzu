@@ -37,9 +37,9 @@ def generate_morton_codes(
     grid_dim: int
 ):
     tid = wp.tid()  # type: ignore # Warp returns a tuple at runtime
-    iy = tid // grid_dim
-    ix = tid % grid_dim
-    codes[tid] = morton_encode(ix, iy)
+    iy = tid // grid_dim  # type: ignore # Warp type inference
+    ix = tid % grid_dim  # type: ignore # Warp type inference
+    codes[tid] = morton_encode(ix, iy)  # type: ignore # Warp type inference
 
 @wp.kernel
 def compute_block_coordinates(
@@ -63,14 +63,14 @@ def compute_block_coordinates(
     """
     block_idx, node_idx = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
-    code = morton_codes[block_idx]
+    code = morton_codes[block_idx]  # type: ignore # Warp type inference
     ix, iy = morton_decode(code)
     
     # Grid dimensions at this level
     grid_dim = 1 << level
     
     # Map reference node [-1, 1] to physical block
-    ref_node = nodes_2d[node_idx]
+    ref_node = nodes_2d[node_idx]  # type: ignore # Warp type inference
     r = ref_node[0]
     s = ref_node[1]
 
@@ -95,5 +95,5 @@ def compute_block_coordinates(
     phys_x = x0 + (r + one) * half * dx
     phys_y = y0 + (s + one) * half * dy
     
-    out_x[block_idx, node_idx] = phys_x
-    out_y[block_idx, node_idx] = phys_y
+    out_x[block_idx, node_idx] = phys_x  # type: ignore # Warp type inference
+    out_y[block_idx, node_idx] = phys_y  # type: ignore # Warp type inference
