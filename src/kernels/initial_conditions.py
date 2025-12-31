@@ -1,6 +1,6 @@
 import warp as wp
 from src.kernels import boundary_conditions as bc
-from typing import Any, cast, cast
+from typing import Any
 
 @wp.kernel
 def init_isentropic_vortex(
@@ -17,7 +17,7 @@ def init_isentropic_vortex(
     center_y: Any
 ):
     # Launch dimensions: (num_active, Np)
-    block_idx, node_idx = wp.tid()
+    block_idx, node_idx = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     pool_idx = active_indices[block_idx]
     

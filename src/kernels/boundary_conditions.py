@@ -21,7 +21,8 @@ def make_vec2_generic(x: wp.float32, y: wp.float32):
     return wp.vec2(x, y)
 
 @wp.func
-def make_vec2_generic(x: wp.float64, y: wp.float64):
+def make_vec2_generic(x: wp.float64, y: wp.float64):  # noqa: F811 # Warp handles overloading
+    # type: ignore
     return wp.vec2d(x, y)
 
 @wp.func
@@ -29,7 +30,8 @@ def make_vec4_generic(x: wp.float32, y: wp.float32, z: wp.float32, w: wp.float32
     return wp.vec4(x, y, z, w)
 
 @wp.func
-def make_vec4_generic(x: wp.float64, y: wp.float64, z: wp.float64, w: wp.float64):
+def make_vec4_generic(x: wp.float64, y: wp.float64, z: wp.float64, w: wp.float64):  # noqa: F811 # Warp handles overloading
+    # type: ignore
     return wp.vec4d(x, y, z, w)
 
 @wp.func
@@ -37,7 +39,8 @@ def get_half_generic(template: wp.float32):
     return wp.float32(0.5)
 
 @wp.func
-def get_half_generic(template: wp.float64):
+def get_half_generic(template: wp.float64):  # noqa: F811 # Warp handles overloading
+    # type: ignore
     return wp.float64(0.5)
 
 @wp.func
@@ -45,7 +48,8 @@ def get_one_generic(template: wp.float32):
     return wp.float32(1.0)
 
 @wp.func
-def get_one_generic(template: wp.float64):
+def get_one_generic(template: wp.float64):  # noqa: F811 # Warp handles overloading
+    # type: ignore
     return wp.float64(1.0)
 
 @wp.func
@@ -53,41 +57,55 @@ def get_any_generic(template: wp.float32, val: wp.float32):
     return wp.float32(val)
 
 @wp.func
-def get_any_generic(template: wp.float32, val: wp.float64):
+def get_any_generic(template: wp.float32, val: wp.float64):  # noqa: F811 # Warp handles overloading
+    # type: ignore
     return wp.float32(val)
 
 @wp.func
-def get_any_generic(template: wp.float32, val: int):
+def get_any_generic(template: wp.float32, val: int):  # noqa: F811 # Warp handles overloading
+    # type: ignore
     return wp.float32(val)
 
 @wp.func
-def get_any_generic(template: wp.float64, val: wp.float32):
+def get_any_generic(template: wp.float64, val: wp.float32):  # noqa: F811 # Warp handles overloading
+    # type: ignore
     return wp.float64(val)
 
 @wp.func
-def get_any_generic(template: wp.float64, val: wp.float64):
+def get_any_generic(template: wp.float64, val: wp.float64):  # noqa: F811 # Warp handles overloading
+    # type: ignore
     return wp.float64(val)
 
 @wp.func
-def get_any_generic(template: wp.float64, val: int):
+def get_any_generic(template: wp.float64, val: int):  # noqa: F811 # Warp handles overloading
+    # type: ignore
     return wp.float64(val)
 
 @wp.func
 def set_vec4_generic(v: wp.vec4, i: int, val: wp.float32):
     res = v
-    if i == 0: res = wp.vec4(val, v[1], v[2], v[3])
-    elif i == 1: res = wp.vec4(v[0], val, v[2], v[3])
-    elif i == 2: res = wp.vec4(v[0], v[1], val, v[3])
-    elif i == 3: res = wp.vec4(v[0], v[1], v[2], val)
+    if i == 0:
+        res = wp.vec4(val, v[1], v[2], v[3])
+    elif i == 1:
+        res = wp.vec4(v[0], val, v[2], v[3])
+    elif i == 2:
+        res = wp.vec4(v[0], v[1], val, v[3])
+    elif i == 3:
+        res = wp.vec4(v[0], v[1], v[2], val)
     return res
 
 @wp.func
-def set_vec4_generic(v: wp.vec4d, i: int, val: wp.float64):
+def set_vec4_generic(v: wp.vec4d, i: int, val: wp.float64):  # noqa: F811 # Warp handles overloading
+    # type: ignore
     res = v
-    if i == 0: res = wp.vec4d(val, v[1], v[2], v[3])
-    elif i == 1: res = wp.vec4d(v[0], val, v[2], v[3])
-    elif i == 2: res = wp.vec4d(v[0], v[1], val, v[3])
-    elif i == 3: res = wp.vec4d(v[0], v[1], v[2], val)
+    if i == 0:
+        res = wp.vec4d(val, v[1], v[2], v[3])
+    elif i == 1:
+        res = wp.vec4d(v[0], val, v[2], v[3])
+    elif i == 2:
+        res = wp.vec4d(v[0], v[1], val, v[3])
+    elif i == 3:
+        res = wp.vec4d(v[0], v[1], v[2], val)
     return res
 
 @wp.func
@@ -145,8 +163,10 @@ def compute_characteristic_state(q_inner: Any, q_target: Any, nx: Any, ny: Any, 
     j_minus = un_t - two * c_t * inv_gm1
     
     zero = params.one - params.one
-    if un_i > c_i: return q_inner
-    elif un_i < -c_i: return q_target
+    if un_i > c_i:
+        return q_inner
+    elif un_i < -c_i:
+        return q_target
     else:
         un_b = half * (j_plus + j_minus)
         c_b = half * half * gm1 * (j_plus - j_minus)
@@ -172,7 +192,11 @@ def compute_characteristic_state(q_inner: Any, q_target: Any, nx: Any, ny: Any, 
 
 @wp.func
 def apply_slip_wall(q_inner: Any, nx: Any, ny: Any, params: Any):
-    rho = q_inner[0]; rhou = q_inner[1]; rhov = q_inner[2]; E = q_inner[3]
+    rho = q_inner[0]
+    rhou = q_inner[1]
+    rhov = q_inner[2]
+    E = q_inner[3]
+    
     mom_dot_n = rhou * nx + rhov * ny
     two = params.one + params.one
     rhou_ghost = rhou - two * mom_dot_n * nx
@@ -204,9 +228,14 @@ def apply_farfield(q_inner: Any, nx: Any, ny: Any, bc_state: Any, params: Any):
 def apply_inlet(q_inner: Any, nx: Any, ny: Any, t: Any, ramp_time: Any, bc_state: Any, params: Any):
     rho = bc_state.v0
     factor = nx - nx + params.one
-    if t < ramp_time: factor = t / ramp_time
-    u = bc_state.v1 * factor; v = bc_state.v2 * factor; p = bc_state.v3
-    rho_u = rho * u; rho_v = rho * v
+    if t < ramp_time:
+        factor = t / ramp_time
+    u = bc_state.v1 * factor
+    v = bc_state.v2 * factor
+    p = bc_state.v3
+    
+    rho_u = rho * u
+    rho_v = rho * v
     kinetic_energy = params.half * rho * (u*u + v*v)
     E = p / (params.gamma - params.one) + kinetic_energy
     q_inlet = make_vec4_generic(rho, rho_u, rho_v, E)
@@ -215,7 +244,8 @@ def apply_inlet(q_inner: Any, nx: Any, ny: Any, t: Any, ramp_time: Any, bc_state
 @wp.func
 def apply_outlet(q_inner: Any, nx: Any, ny: Any, bc_state: Any, params: Any):
     rho = wp.max(params.rho_floor, q_inner[0])
-    u = q_inner[1] / rho; v = q_inner[2] / rho
+    u = q_inner[1] / rho
+    v = q_inner[2] / rho
     p_back = bc_state.v0
     kin = params.half * rho * (u*u + v*v)
     E_target = p_back / (params.gamma - params.one) + kin
@@ -224,16 +254,27 @@ def apply_outlet(q_inner: Any, nx: Any, ny: Any, bc_state: Any, params: Any):
 
 @wp.func
 def apply_double_mach_exact(q_inner: Any, nx: Any, ny: Any, x: Any, y: Any, t: Any, params: Any):
-    template = nx; half = get_half_generic(template); one = get_one_generic(template)
+    template = nx
+    half = get_half_generic(template)
+    one = get_one_generic(template)
     sqrt3 = wp.sqrt(get_any_generic(template, 3.0))
     sin60 = sqrt3 * half
     shock_x = one / get_any_generic(template, 6.0) + y / sqrt3 + (get_any_generic(template, 10.0) / sin60) * t
     if x < shock_x:
-        rho = get_any_generic(template, 8.0); u825 = get_any_generic(template, 8.25)
-        u = u825 * sin60; v = -u825 * half; p = get_any_generic(template, 116.5)
+        rho = get_any_generic(template, 8.0)
+        u825 = get_any_generic(template, 8.25)
+        u = u825 * sin60
+        v = -u825 * half
+        p = get_any_generic(template, 116.5)
     else:
-        rho = get_any_generic(template, 1.4); u = get_any_generic(template, 0.0); v = get_any_generic(template, 0.0); p = one
-    rho_u = rho * u; rho_v = rho * v; kin = half * rho * (u*u + v*v)
+        rho = get_any_generic(template, 1.4)
+        u = get_any_generic(template, 0.0)
+        v = get_any_generic(template, 0.0)
+        p = one
+    
+    rho_u = rho * u
+    rho_v = rho * v
+    kin = half * rho * (u*u + v*v)
     E = p / (params.gamma - params.one) + kin
     q_target = make_vec4_generic(rho, rho_u, rho_v, E)
     return compute_characteristic_state(q_inner, q_target, nx, ny, params)
@@ -270,14 +311,25 @@ def apply_isothermal_wall(q_inner: Any, T_wall: Any, params: Any):
 def apply_boundary_condition(
     bc_index: wp.int32, bc_data: Any, q_inner: Any, nx: Any, ny: Any, x: Any, y: Any, t: Any, ramp_time: Any, params: Any
 ):
-    bc_state = bc_data[bc_index]; bc_type = bc_state.type; q_outer = q_inner
-    if bc_type == BC_WALL: q_outer = apply_slip_wall(q_inner, nx, ny, params)
-    elif bc_type == BC_CYLINDER_WALL: q_outer = apply_cylinder_wall(q_inner, x, y, params)
-    elif bc_type == BC_FARFIELD: q_outer = apply_farfield(q_inner, nx, ny, bc_state, params)
-    elif bc_type == BC_INLET: q_outer = apply_inlet(q_inner, nx, ny, t, ramp_time, bc_state, params)
-    elif bc_type == BC_OUTLET: q_outer = apply_outlet(q_inner, nx, ny, bc_state, params)
-    elif bc_type == BC_EXTRAPOLATION: q_outer = apply_extrapolation(q_inner)
-    elif bc_type == BC_DOUBLE_MACH_EXACT: q_outer = apply_double_mach_exact(q_inner, nx, ny, x, y, t, params)
-    elif bc_type == BC_NO_SLIP_WALL: q_outer = apply_no_slip_wall(q_inner, params)
-    elif bc_type == BC_ISOTHERMAL_WALL: q_outer = apply_isothermal_wall(q_inner, bc_state.v0, params)
+    bc_state = bc_data[bc_index]
+    bc_type = bc_state.type
+    q_outer = q_inner
+    if bc_type == BC_WALL:
+        q_outer = apply_slip_wall(q_inner, nx, ny, params)
+    elif bc_type == BC_CYLINDER_WALL:
+        q_outer = apply_cylinder_wall(q_inner, x, y, params)
+    elif bc_type == BC_FARFIELD:
+        q_outer = apply_farfield(q_inner, nx, ny, bc_state, params)
+    elif bc_type == BC_INLET:
+        q_outer = apply_inlet(q_inner, nx, ny, t, ramp_time, bc_state, params)
+    elif bc_type == BC_OUTLET:
+        q_outer = apply_outlet(q_inner, nx, ny, bc_state, params)
+    elif bc_type == BC_EXTRAPOLATION:
+        q_outer = apply_extrapolation(q_inner)
+    elif bc_type == BC_DOUBLE_MACH_EXACT:
+        q_outer = apply_double_mach_exact(q_inner, nx, ny, x, y, t, params)
+    elif bc_type == BC_NO_SLIP_WALL:
+        q_outer = apply_no_slip_wall(q_inner, params)
+    elif bc_type == BC_ISOTHERMAL_WALL:
+        q_outer = apply_isothermal_wall(q_inner, bc_state.v0, params)
     return q_outer

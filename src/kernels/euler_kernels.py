@@ -1,7 +1,7 @@
 import warp as wp
 from src.kernels import boundary_conditions as bc
 from src.physics.laws.euler import pressure, flux_x, flux_y
-from typing import Any, cast
+from typing import Any
 
 # Use constants from BC module
 BC_WALL = bc.BC_WALL
@@ -139,7 +139,7 @@ def compute_nodal_fluxes(
     params: Any
 ):
     """ Computes fluxes at basis nodes. """
-    e, i = wp.tid()
+    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     q_val = q[e, i]
     f_x[e, i] = flux_x(q_val, params)
     f_y[e, i] = flux_y(q_val, params)
@@ -161,7 +161,7 @@ def compute_volume_term(
     """
     Computes the divergence of the flux (volume integral) using precomputed nodal fluxes.
     """
-    e, i = wp.tid() # Element e, Node i
+    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime # Element e, Node i
 
     # Load Metrics for this element and node
     dr_dx = rx[e, i]
@@ -204,7 +204,7 @@ def interpolate_to_quadrature(
     Np: wp.int32
 ):
     """ Interpolates nodal values to quadrature points. """
-    e, iq = wp.tid()
+    e, iq = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     val = q[e, 0] - q[e, 0]
     for j in range(Np):
@@ -225,7 +225,7 @@ def compute_projected_fluxes(
     This effectively performs a L2 projection of the non-linear flux into the polynomial space,
     filtering out high-frequency aliasing modes.
     """
-    e, i = wp.tid() # Element e, Node i
+    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime # Element e, Node i
 
     zero_vec = q_q[e, 0] - q_q[e, 0]
     fx_acc = zero_vec
@@ -272,7 +272,7 @@ def accumulate_interface_fluxes(
     Computes the surface integral by parallelizing over each face node.
     Exploits the sparsity of the LIFT matrix for GLL nodes.
     """
-    e, face_idx, k = wp.tid()
+    e, face_idx, k = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     # 1. Geometry and Connectivity
     nx = face_geo_factors[e, face_idx, 0]
@@ -370,7 +370,7 @@ def compute_max_wave_speed(
     """
     Computes the maximum wave speed in the entire domain for CFL calculation.
     """
-    e, i = wp.tid()
+    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     # Load state
     val = q[e, i]
@@ -409,7 +409,7 @@ def compute_cell_averages(
     Computes the cell-average state for each element.
     Avg = (Sum Q_j * w_j * J_j) / (Sum w_j * J_j)
     """
-    e = wp.tid()
+    e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     # Use template to get correct zero vector and zero scalar of the same precision
     zero_vec = q[e, 0] - q[e, 0]
@@ -439,7 +439,7 @@ def compute_neighbor_min_max(
     """
     Finds the minimum and maximum cell averages among an element and its neighbors.
     """
-    e = wp.tid()
+    e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     avg_e = q_avg[e]
     
@@ -487,7 +487,7 @@ def compute_gradients_green_gauss(
     Estimates the cell-center gradient using Green-Gauss theorem.
     grad(q) = (1/Vol) * sum_faces (q_face * n * area)
     """
-    e = wp.tid()
+    e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     avg_e = q_avg[e]
     v_e = vol[e]
@@ -535,7 +535,7 @@ def apply_minmod_limiter(
     Applies a gradient-based Minmod slope limiter.
     Ensures reconstructed nodal values are within neighbor min/max.
     """
-    e = wp.tid()
+    e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     avg_e = q_avg[e]
     gx = grad_x[e]
@@ -600,7 +600,7 @@ def apply_barth_jespersen_limiter(
     Applies the Barth-Jespersen limiter to the nodal values.
     Computes a scaling factor alpha_e such that the limited values are within [q_min, q_max].
     """
-    e = wp.tid()
+    e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     avg_e = q_avg[e]
     min_e = q_min[e]

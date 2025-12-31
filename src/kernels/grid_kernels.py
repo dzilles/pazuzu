@@ -1,5 +1,6 @@
 import warp as wp
-from typing import Any, cast
+from typing import Any
+from src.kernels import boundary_conditions as bc
 
 @wp.func
 def part1by1(n: int):
@@ -35,12 +36,10 @@ def generate_morton_codes(
     codes: Any,
     grid_dim: int
 ):
-    tid = wp.tid()
+    tid = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     iy = tid // grid_dim
     ix = tid % grid_dim
     codes[tid] = morton_encode(ix, iy)
-
-from src.kernels import boundary_conditions as bc
 
 @wp.kernel
 def compute_block_coordinates(
@@ -62,7 +61,7 @@ def compute_block_coordinates(
         out_x: Output X coordinates (num_blocks, Np).
         out_y: Output Y coordinates (num_blocks, Np).
     """
-    block_idx, node_idx = wp.tid()
+    block_idx, node_idx = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     code = morton_codes[block_idx]
     ix, iy = morton_decode(code)

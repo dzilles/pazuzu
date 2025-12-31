@@ -66,10 +66,10 @@ def test_no_slip_energy_flux_zeroing(device, params):
     for No-Slip Wall boundaries, even if residual terms (u.tau) exist.
     """
     num_elements = 1
-    Np = 1; Nfp = 1
-    
-    # Internal state: Non-zero velocity to potentially generate work terms
-    # rho=1, u=1, v=0, p=1
+    Np = 1
+    Nfp = 1
+
+    # Internal state: Non-zero velocity to potentially generate work terms    # rho=1, u=1, v=0, p=1
     q_host = np.zeros((num_elements, Np, 4), dtype=np.float32)
     q_host[0, 0] = [1.0, 1.0, 0.0, 2.5]
     
@@ -131,11 +131,10 @@ def test_no_slip_energy_flux_zeroing(device, params):
     
     # Let's check the result.
     # The point of the fix is that even if calculation yields small epsilon, we force it to zero.
-    
-    res_rhs = rhs.numpy()[0, 0]
-    
-    # We can't easily check internal Fv_star directly from python without modifying kernel to output it.
-    # But we can assume Fvi is calculated correctly.
+
+    _ = rhs.numpy()[0, 0]
+
+    # We can't easily check internal Fv_star directly from python without modifying kernel to output it.    # But we can assume Fvi is calculated correctly.
     # If we had NOT zeroed it, Fv_star might have some value.
     # Given the previous test passed with accurate reflection, Fv_star was likely 0.0 anyway for that symmetric case.
     # This fix is a safeguard.

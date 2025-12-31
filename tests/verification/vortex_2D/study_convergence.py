@@ -14,9 +14,12 @@ root_dir = os.path.abspath(os.path.join(test_dir, "../../.."))
 sys.path.append(root_dir)
 
 def get_gll_nodes_weights(N):
-    if N == 0: return np.array([0.0]), np.array([2.0])
-    if N == 1: roots = np.array([])
-    else: roots = np.roots(legendre(N).deriv(1))
+    if N == 0:
+        return np.array([0.0]), np.array([2.0])
+    if N == 1:
+        roots = np.array([])
+    else:
+        roots = np.roots(legendre(N).deriv(1))
     nodes = np.concatenate(([-1.0], np.sort(roots), [1.0]))
     weights = 2 / (N * (N + 1) * legendre(N)(nodes)**2)
     return nodes, weights
@@ -67,15 +70,15 @@ def run_study():
     base_config['amr']['max_blocks'] = 70000 
     
     for P in orders:
-        print(f"\n========================================")
+        print("\n========================================")
         print(f"  Studying Polynomial Order P = {P}")
-        print(f"========================================")
-        
+        print("========================================")
+
         errors = []
         h_values = []
         
+        # Get 1D nodes and weights
         _, w1d = get_gll_nodes_weights(P)
-        weights_2d = np.kron(w1d, w1d)
         
         for depth in depths:
             N_blocks_edge = 2**depth
@@ -212,6 +215,8 @@ def run_study():
         plt.savefig(summary_plot_path)
         plt.close()
         print(f"\nStudy complete. Summary plot saved to {summary_plot_path}")
+    
+    return all_results
 
 if __name__ == "__main__":
     run_study()

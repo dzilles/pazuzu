@@ -1,7 +1,7 @@
 import warp as wp
 from src.kernels import boundary_conditions as bc
 from src.physics.laws.navier_stokes import temperature, viscous_flux_x, viscous_flux_y
-from typing import Any, cast
+from typing import Any
 
 @wp.kernel
 def compute_primitive_gradients_volume(
@@ -22,7 +22,7 @@ def compute_primitive_gradients_volume(
     Pass 1: Computes volume part of gradients of primitive variables.
     grad(phi) = (dphi/dr * dr/dx + dphi/ds * ds/dx, dphi/dr * dr/dy + dphi/ds * ds/dy)
     """
-    e, i = wp.tid()
+    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     dr_dx = rx[e, i]
     dr_dy = ry[e, i]
@@ -83,7 +83,7 @@ def compute_primitive_gradients_surface(
     grad(phi) += LIFT * (phi_star - phi_inner) * n / J
     where phi_star = 0.5 * (phi_inner + phi_outer)
     """
-    e = wp.tid()
+    e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     for face_idx in range(4):
         nx = face_geo_factors[e, face_idx, 0]
@@ -170,7 +170,7 @@ def compute_viscous_volume_term(
     """
     Computes div(Fv) and adds it to RHS.
     """
-    e, i = wp.tid()
+    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     
     dr_dx = rx[e, i]
     dr_dy = ry[e, i]
@@ -224,7 +224,7 @@ def compute_viscous_surface_term_kernel(
     ramp_time: Any,
     params: Any
 ):
-    e = wp.tid()
+    e = wp.tid()  # type: ignore # Warp returns a tuple at runtime
     compute_viscous_surface_term(
         e, q, grad_u, grad_v, grad_T, rhs, connectivity, neighbor_face_indices, face_map,
         LIFT, face_geo_factors, J, bc_mask, bc_data, coord_x, coord_y, Nfp, t, ramp_time, params
