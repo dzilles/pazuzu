@@ -1,4 +1,4 @@
-import h5py
+import h5py  # type: ignore # Missing type stubs
 import numpy as np
 import os
 import warp as wp
@@ -31,8 +31,10 @@ class HDF5Writer:
         
         # Explicitly remove old file to ensure no stale datasets remain
         if os.path.exists(self.filename):
-            try: os.remove(self.filename)
-            except: pass
+            try:
+                os.remove(self.filename)
+            except Exception:
+                pass
 
         # Extract Geometry from Solver
         # We assume the mesh is static for now (no adaptive refinement *during* the run that changes the writer)
@@ -95,8 +97,6 @@ class HDF5Writer:
                     n3 = (j + 1) * N1 + i
                     sub_quads.append([n0, n1, n2, n3])
             sub_quads = np.array(sub_quads, dtype=np.int32) # Shape (N*N, 4)
-            
-            n_sub_cells_per_block = N * N
             
             # Replicate for all blocks
             # Global offsets: block_idx * Np
@@ -171,25 +171,25 @@ class HDF5Writer:
                 f.write(f'    <Topology TopologyType="Quadrilateral" NumberOfElements="{self.n_vis_elements}">\n')
                 f.write(f'     <DataItem Dimensions="{self.n_vis_elements} 4" NumberType="Int" Format="HDF">\n')
                 f.write(f'      {h5_rel}:/mesh/connectivity\n')
-                f.write(f'     </DataItem>\n')
-                f.write(f'    </Topology>\n')
+                f.write('     </DataItem>\n')
+                f.write('    </Topology>\n')
                 
                 # --- Geometry ---
-                f.write(f'    <Geometry GeometryType="XYZ">\n')
+                f.write('    <Geometry GeometryType="XYZ">\n')
                 f.write(f'     <DataItem Dimensions="{self.n_vis_points} 3" NumberType="Float" Precision="{self.precision_str}" Format="HDF">\n')
                 f.write(f'      {h5_rel}:/mesh/points\n')
-                f.write(f'     </DataItem>\n')
-                f.write(f'    </Geometry>\n')
+                f.write('     </DataItem>\n')
+                f.write('    </Geometry>\n')
                 
                 # --- Attributes ---
                 for var in ["rho", "u", "v", "p"]:
                     f.write(f'    <Attribute Name="{var}" AttributeType="Scalar" Center="{attr_type}">\n')
                     f.write(f'     <DataItem Dimensions="{data_dim}" NumberType="Float" Precision="{self.precision_str}" Format="HDF">\n')
                     f.write(f'      {h5_rel}:/data/step_{step}/{var}\n')
-                    f.write(f'     </DataItem>\n')
-                    f.write(f'    </Attribute>\n')
+                    f.write('     </DataItem>\n')
+                    f.write('    </Attribute>\n')
                 
-                f.write(f'   </Grid>\n')
+                f.write('   </Grid>\n')
             
             f.write('  </Grid>\n')
             f.write(' </Domain>\n')
