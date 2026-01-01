@@ -33,6 +33,19 @@ def mark_blocks_gradient(
     else:
         refine_flags[pool_idx] = 0
 
+@wp.kernel
+def zero_blocks(
+    q: Any,                 # (MAX, Np) vec4
+    block_indices: Any,     # (num_blocks) int32
+    num_blocks: int
+):
+    tid_block, tid_node = wp.tid()
+    if tid_block >= num_blocks:
+        return
+        
+    pool_idx = block_indices[tid_block]
+    q[pool_idx, tid_node] = wp.vec4(0.0, 0.0, 0.0, 0.0)
+
 @wp.func
 def prolongate_block_func(
     parent_q: Any,     # (MAX, Np) vec4

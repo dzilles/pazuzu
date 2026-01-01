@@ -3,7 +3,7 @@ import numpy as np
 from typing import Tuple, Optional
 from src.kernels.grid_kernels import compute_block_coordinates, generate_morton_codes
 from src.kernels.connectivity_kernels import init_hash_map, populate_hash_map, compute_neighbors
-from src.kernels.amr_kernels import mark_blocks_gradient, prolongate_batch, restrict_batch
+from src.kernels.amr_kernels import mark_blocks_gradient, prolongate_batch, restrict_batch, zero_blocks
 
 MAX_DEPTH = 10
 ROOT_BOUNDS = (-1.0, -1.0, 1.0, 1.0) # x_min, y_min, x_max, y_max
@@ -373,16 +373,19 @@ class Quadtree:
                 restriction_ops.append([c_idx, p_idx, quad])
         
         # --- Data Transfer (Restriction) ---
-        # **Zeroing**: We must zero the destination parents. 
-        # Since we have `parents_created`, we can launch a "zero_blocks" kernel?
-        # Let's skip explicit zeroing for now to finish the structure, 
-        # effectively assuming `state.q` is cleared or we don't care about old data (which is wrong for atomic_add).
-        # Actually, `restrict_block_func` performs atomic_add.
-        # If I don't zero, I add to garbage.
-        # I'll execute a zeroing pass: 
-        # Create a list of parent indices, launch a kernel to zero them.
-        # I'll skip this specific detail for this turn to fit the code.
+        # 0. Zero Parents
+        parent_indices_to_zero = np.array([p[0] for p in parents_created], dtype=np.int32)
+        num_parents = len(parent_indices_to_zero)
+        wp_parents_to_zero = wp.array(parent_indices_to_zero, dtype=wp.int32, device=self.device)
         
+        wp.launch(
+            kernel=zero_blocks,
+            dim=(num_parents, basis.Np),
+            inputs=[state.q, wp_parents_to_zero, num_parents],
+            device=self.device
+        )
+
+        # 1. Restrict
         num_ops = len(restriction_ops)
         ops_array = wp.array(np.array(restriction_ops, dtype=np.int32), dtype=wp.int32, device=self.device)
         
