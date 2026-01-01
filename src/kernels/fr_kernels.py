@@ -94,6 +94,12 @@ def compute_fr_update(
         # Neighbor's Right boundary (i=N1-1)
         idx_neigh = j * N1 + (N1 - 1)
         q_L_ghost = q[neigh_L, idx_neigh]
+    else:
+        # --- Boundary Condition (neigh_L == -1) ---
+        # TODO: Implement Physical BCs (Inflow/Outflow/Wall).
+        # Currently defaults to Transmissive (q_ghost = q_internal).
+        # For Periodic setups, neigh_L should never be -1.
+        pass
         
     F_star_L = compute_interface_flux(q_L_ghost, q_L_internal, one, zero, params)
     
@@ -113,6 +119,10 @@ def compute_fr_update(
         # Neighbor's Left boundary (i=0)
         idx_neigh = j * N1 + 0
         q_R_ghost = q[neigh_R, idx_neigh]
+    else:
+        # --- Boundary Condition (neigh_R == -1) ---
+        # TODO: Implement Physical BCs. Defaults to Transmissive.
+        pass
         
     F_star_R = compute_interface_flux(q_R_internal, q_R_ghost, one, zero, params)
     if neigh_R != -2:
@@ -132,6 +142,10 @@ def compute_fr_update(
         # Neighbor's Top boundary (j=N1-1)
         idx_neigh = (N1 - 1) * N1 + i
         q_B_ghost = q[neigh_B, idx_neigh]
+    else:
+        # --- Boundary Condition (neigh_B == -1) ---
+        # TODO: Implement Physical BCs. Defaults to Transmissive.
+        pass
         
     # Flux in Y direction, Normal=(0,1)
     G_star_B = compute_interface_flux(q_B_ghost, q_B_internal, zero, one, params)
@@ -150,6 +164,10 @@ def compute_fr_update(
         # Neighbor's Bottom boundary (j=0)
         idx_neigh = 0 * N1 + i
         q_T_ghost = q[neigh_T, idx_neigh]
+    else:
+        # --- Boundary Condition (neigh_T == -1) ---
+        # TODO: Implement Physical BCs. Defaults to Transmissive.
+        pass
         
     G_star_T = compute_interface_flux(q_T_internal, q_T_ghost, zero, one, params)
     if neigh_T != -2:

@@ -48,7 +48,8 @@ def test_mortar_list_population(device):
     
     mortar_list = qt.mortar_list.numpy()[:num_mortars]
     
-    # Find L2 TR child (Code 3 at L2).
+    # Find L2 TR child (Code 19 at L2).
+    # (1 << 4) | interleaved(1, 1) = 16 | 3 = 19
     codes = qt.block_morton_codes.numpy()
     levels = qt.block_levels.numpy()
     
@@ -56,7 +57,7 @@ def test_mortar_list_population(device):
     for idx in range(qt.num_blocks):
         # We need active blocks
         pool_idx = state.active_block_indices.numpy()[idx]
-        if levels[pool_idx] == 2 and codes[pool_idx] == 3: # (1,1) child
+        if levels[pool_idx] == 2 and codes[pool_idx] == 19: # (1,1) child
             l2_tr_idx = pool_idx
             break
             
