@@ -7,7 +7,6 @@ from src.geometry.quadtree import Quadtree
 from src.kernels.structs import EquationParams32
 from src.kernels.fr_kernels import compute_fr_update
 
-@pytest.mark.parametrize("device", ["cpu"])
 def test_fr_update_constant_flow(device):
     """
     Verifies that for a constant flow field, the computed RHS is zero (machine precision).
@@ -79,7 +78,6 @@ def test_fr_update_constant_flow(device):
     rhs_res = state.rhs.numpy()
     assert np.allclose(rhs_res, 0.0, atol=1e-6)
 
-@pytest.mark.parametrize("device", ["cpu"])
 def test_fr_update_linear_density(device):
     """
     Verifies linear advection accuracy.
@@ -192,7 +190,6 @@ def test_fr_update_linear_density(device):
     
     pass
 
-@pytest.mark.parametrize("device", ["cpu"])
 def test_fr_update_hllc(device):
     """
     Verifies that the FR update runs with HLLC flux type.

@@ -1,0 +1,38 @@
+amr:
+  initial_depth: 7
+  max_blocks: 70000
+case_name: Isentropic Vortex Convergence Study
+initial_condition:
+  name: vortex
+  params:
+    beta: 5.0
+    radius: 1.0
+io:
+  output_dir: /home/dzilles/Documents/Softwareprojekte/pazuzu/tests/verification/vortex_2D/output/run_P1_D7
+  write_interval: 10000
+mesh:
+  periodic_x: true
+  periodic_y: true
+  x_max: 5.0
+  x_min: -5.0
+  y_max: 5.0
+  y_min: -5.0
+numerics:
+  cfl: 0.1
+  dt_min: 1.0e-14
+  flux: hllc
+  polynomial_order: 1
+  precision: double
+  time_integrator: rk4
+physics:
+  gamma: 1.4
+  gas_constant: 1.0
+  p_inf: 1.0
+  rho_inf: 1.0
+  u_inf: 1.0
+  v_inf: 1.0
+simulation:
+  device: cpu
+  max_steps: 100000
+  t_final: 1.0
+solver_type: euler_2d

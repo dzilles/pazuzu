@@ -6,7 +6,7 @@ from src.core.config import PazuzuConfig, SolverType
 from src.core.simulation_state import SimulationState
 from src.core.basis import Basis
 from src.geometry.quadtree import Quadtree
-from src.core.time_integrator import TimeIntegrator
+from src.numerics.time_steppers import TimeIntegrator
 from src.kernels.structs import EquationParams32, EquationParams64
 from src.kernels.fr_kernels import compute_fr_update
 from src.kernels.initial_conditions import init_isentropic_vortex

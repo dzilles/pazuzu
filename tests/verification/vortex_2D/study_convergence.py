@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import yaml
 from scipy import stats
 from scipy.special import legendre
+import warp as wp
 
 # Add root directory to path to find solver if needed
 test_dir = os.path.dirname(os.path.abspath(__file__))
@@ -66,7 +67,9 @@ def run_study():
 
     # Ensure precision is double for convergence study
     base_config['numerics']['precision'] = "double"
-    base_config['simulation']['device'] = "cuda" 
+
+    wp.init()
+    base_config['simulation']['device'] = "cuda" if wp.is_cuda_available() else "cpu"
     base_config['amr']['max_blocks'] = 70000 
     
     for P in orders:

@@ -1,4 +1,4 @@
-import unittest
+import pytest
 import numpy as np
 import warp as wp
 import sys
@@ -9,34 +9,32 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 
 from src.kernels import common_kernels
 
-class TestCommonKernels(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
+class TestCommonKernels:
+    
+    def test_rk_stage_1(self, device):
         wp.init()
-        cls.device = "cpu"
-
-    def test_rk_stage_1(self):
         num_elems = 2
         Np = 4
         q = np.ones((num_elems, Np), dtype=np.float32)
         rhs = np.full((num_elems, Np), 0.5, dtype=np.float32)
         dt = 0.1
         
-        q_wp = wp.array(q, device=self.device)
-        rhs_wp = wp.array(rhs, device=self.device)
+        q_wp = wp.array(q, device=device)
+        rhs_wp = wp.array(rhs, device=device)
         q_out_wp = wp.zeros_like(q_wp)
         
         wp.launch(
             kernel=common_kernels.rk_stage_1,
             dim=(num_elems, Np),
             inputs=[q_wp, rhs_wp, dt, q_out_wp],
-            device=self.device
+            device=device
         )
         
         expected = q + dt * rhs
         np.testing.assert_allclose(q_out_wp.numpy(), expected, atol=1e-6)
 
-    def test_rk_stage_2(self):
+    def test_rk_stage_2(self, device):
+        wp.init()
         num_elems = 1
         Np = 1
         q = np.array([[1.0]], dtype=np.float32)
@@ -46,41 +44,39 @@ class TestCommonKernels(unittest.TestCase):
         c1 = 0.75
         c2 = 0.25
         
-        q_wp = wp.array(q, device=self.device)
-        q_1_wp = wp.array(q_1, device=self.device)
-        rhs_wp = wp.array(rhs, device=self.device)
+        q_wp = wp.array(q, device=device)
+        q_1_wp = wp.array(q_1, device=device)
+        rhs_wp = wp.array(rhs, device=device)
         q_out_wp = wp.zeros_like(q_wp)
         
         wp.launch(
             kernel=common_kernels.rk_stage_2,
             dim=(num_elems, Np),
             inputs=[q_wp, q_1_wp, rhs_wp, dt, q_out_wp, c1, c2],
-            device=self.device
+            device=device
         )
         
         # 0.75 * Q_n + 0.25 * (Q_1 + dt * RHS)
         expected = 0.75 * 1.0 + 0.25 * (1.1 + 0.1 * 0.5)
         np.testing.assert_allclose(q_out_wp.numpy(), expected, atol=1e-6)
 
-    def test_apply_filter_matrix(self):
+    def test_apply_filter_matrix(self, device):
+        wp.init()
         num_elems = 1
         Np = 2
         q = np.array([[1.0, 2.0]], dtype=np.float32)
         # Identity filter
         F = np.eye(Np, dtype=np.float32)
         
-        q_wp = wp.array(q, device=self.device)
-        F_wp = wp.array(F, device=self.device)
+        q_wp = wp.array(q, device=device)
+        F_wp = wp.array(F, device=device)
         q_out_wp = wp.zeros_like(q_wp)
         
         wp.launch(
             kernel=common_kernels.apply_filter_matrix,
             dim=(num_elems, Np),
             inputs=[q_wp, F_wp, q_out_wp],
-            device=self.device
+            device=device
         )
         
         np.testing.assert_allclose(q_out_wp.numpy(), q, atol=1e-6)
-
-if __name__ == '__main__':
-    unittest.main()

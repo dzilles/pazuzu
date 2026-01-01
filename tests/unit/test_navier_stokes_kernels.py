@@ -22,60 +22,71 @@ def kernel_viscous_flux(
     flux_y_out[tid] = nsl.viscous_flux_y(q[tid], grad_u[tid], grad_v[tid], grad_T[tid], params)
 
 class TestNavierStokesKernels:
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        wp.init()
-        self.device = "cpu"
         
-    def test_primitive_gradients_constant(self):
-        """Test that a constant state results in zero gradients."""
-        Np = 4
+    def test_primitive_gradients_constant(self, device):
+        """
+        Verifies that gradients of a constant field are zero.
+        """
+        wp.init()
+        
+        # Setup 1 Element, N=1 (4 nodes)
         num_elements = 1
+        N = 1
+        Np = (N+1)**2
+        
+        # Constant field
+        rho = 1.0
+        u = 2.0
+        v = 0.5
+        p = 1.0
+        # E = p/(gamma-1) + 0.5*rho*(u^2+v^2)
+        # We don't need E for gradient of primitives u, v, T.
+        # But we pass Q.
         
         q_host = np.zeros((num_elements, Np, 4), dtype=np.float32)
-        q_host[:, :, 0] = 1.0 # rho
-        q_host[:, :, 1] = 0.5 # rho*u => u=0.5
-        q_host[:, :, 2] = 0.0 # rho*v => v=0.0
-        q_host[:, :, 3] = 2.5 # E
+        q_host[:, :, 0] = rho
+        q_host[:, :, 1] = rho * u
+        q_host[:, :, 2] = rho * v
+        q_host[:, :, 3] = 10.0 # Arbitrary E
         
-        q = wp.array(q_host, dtype=wp.vec4, device=self.device)
-        grad_u = wp.zeros((num_elements, Np), dtype=wp.vec2, device=self.device)
-        grad_v = wp.zeros((num_elements, Np), dtype=wp.vec2, device=self.device)
-        grad_T = wp.zeros((num_elements, Np), dtype=wp.vec2, device=self.device)
+        q = wp.array(q_host, dtype=wp.vec4, device=device)
         
-        # Identity differentiation matrices for constant test
-        Dr = wp.array(np.zeros((Np, Np), dtype=np.float32), dtype=wp.float32, device=self.device)
-        Ds = wp.array(np.zeros((Np, Np), dtype=np.float32), dtype=wp.float32, device=self.device)
+        grad_u = wp.zeros((num_elements, Np), dtype=wp.vec2, device=device)
+        grad_v = wp.zeros((num_elements, Np), dtype=wp.vec2, device=device)
+        grad_T = wp.zeros((num_elements, Np), dtype=wp.vec2, device=device)
         
-        rx = wp.array(np.ones((num_elements, Np), dtype=np.float32), dtype=wp.float32, device=self.device)
-        ry = wp.array(np.zeros((num_elements, Np), dtype=np.float32), dtype=wp.float32, device=self.device)
-        sx = wp.array(np.zeros((num_elements, Np), dtype=np.float32), dtype=wp.float32, device=self.device)
-        sy = wp.array(np.ones((num_elements, Np), dtype=np.float32), dtype=wp.float32, device=self.device)
+        # Identity Metrics (dx/dr = 1) -> Dr = Dx
+        # Use simple D matrices (zero for constant check? No, actual D)
+        # But if field is constant, D * q = 0 regardless of metric.
+        Dr = wp.array(np.zeros((Np, Np), dtype=np.float32), dtype=wp.float32, device=device)
+        Ds = wp.array(np.zeros((Np, Np), dtype=np.float32), dtype=wp.float32, device=device)
+        
+        # Metrics don't matter if derivative is zero
+        rx = wp.array(np.ones((num_elements, Np), dtype=np.float32), dtype=wp.float32, device=device)
+        ry = wp.array(np.zeros((num_elements, Np), dtype=np.float32), dtype=wp.float32, device=device)
+        sx = wp.array(np.zeros((num_elements, Np), dtype=np.float32), dtype=wp.float32, device=device)
+        sy = wp.array(np.ones((num_elements, Np), dtype=np.float32), dtype=wp.float32, device=device)
         
         params = EquationParams32()
         params.gamma = 1.4
         params.rho_floor = 1e-5
         params.p_floor = 1e-5
         params.one = 1.0
-        params.cp = 1004.5
-        params.gas_constant = 287.0
+        params.gas_constant = 1.0
         
         wp.launch(
             kernel=nsk.compute_primitive_gradients_volume,
-            dim=(num_elements, Np),
+            dim=num_elements * Np,
             inputs=[q, grad_u, grad_v, grad_T, Dr, Ds, rx, ry, sx, sy, Np, params],
-            device=self.device
+            device=device
         )
-        
-        res_u = grad_u.numpy()
-        res_v = grad_v.numpy()
-        res_T = grad_T.numpy()
-        
-        assert np.allclose(res_u, 0.0)
-        assert np.allclose(res_v, 0.0)
-        assert np.allclose(res_T, 0.0)
+        # Check
+        assert np.allclose(grad_u.numpy(), 0.0)
+        assert np.allclose(grad_v.numpy(), 0.0)
+        # T depends on P and Rho. Both constant.
+        assert np.allclose(grad_T.numpy(), 0.0)
 
-    def test_viscous_flux_calculation(self):
+    def test_viscous_flux_calculation(self, device):
         """Test viscous flux calculation for zero gradients and shear flow."""
         params = EquationParams32()
         params.gamma = 1.4
@@ -89,19 +100,19 @@ class TestNavierStokesKernels:
         
         # Case 1: Zero Gradients
         q_val = [1.0, 1.0, 0.0, 2.5] # rho=1, u=1, v=0, p=1
-        q_wp = wp.array([q_val], dtype=wp.vec4, device=self.device)
-        grad_u_wp = wp.zeros(1, dtype=wp.vec2, device=self.device)
-        grad_v_wp = wp.zeros(1, dtype=wp.vec2, device=self.device)
-        grad_T_wp = wp.zeros(1, dtype=wp.vec2, device=self.device)
+        q_wp = wp.array([q_val], dtype=wp.vec4, device=device)
+        grad_u_wp = wp.zeros(1, dtype=wp.vec2, device=device)
+        grad_v_wp = wp.zeros(1, dtype=wp.vec2, device=device)
+        grad_T_wp = wp.zeros(1, dtype=wp.vec2, device=device)
         
-        flux_x_out = wp.zeros(1, dtype=wp.vec4, device=self.device)
-        flux_y_out = wp.zeros(1, dtype=wp.vec4, device=self.device)
+        flux_x_out = wp.zeros(1, dtype=wp.vec4, device=device)
+        flux_y_out = wp.zeros(1, dtype=wp.vec4, device=device)
         
         wp.launch(
             kernel=kernel_viscous_flux,
             dim=1,
             inputs=[q_wp, grad_u_wp, grad_v_wp, grad_T_wp, flux_x_out, flux_y_out, params],
-            device=self.device
+            device=device
         )
         
         # All viscous fluxes should be zero
@@ -119,13 +130,13 @@ class TestNavierStokesKernels:
         # tau_yy = 2*mu*(dv/dy - 1/3*(du/dx+dv/dy)) = 0
         
         grad_u_val = [0.0, 1.0]
-        grad_u_wp = wp.array([grad_u_val], dtype=wp.vec2, device=self.device)
+        grad_u_wp = wp.array([grad_u_val], dtype=wp.vec2, device=device)
         
         wp.launch(
             kernel=kernel_viscous_flux,
             dim=1,
             inputs=[q_wp, grad_u_wp, grad_v_wp, grad_T_wp, flux_x_out, flux_y_out, params],
-            device=self.device
+            device=device
         )
         
         # Fv = [0, tau_xx, tau_xy, u*tau_xx + v*tau_xy - qx]

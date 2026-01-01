@@ -4,7 +4,6 @@ import os
 from src.core.config import PazuzuConfig
 from solver import PazuzuSolver
 
-@pytest.mark.parametrize("device", ["cpu"])
 def test_rk4_memory_optimization(device):
     """
     Verifies that the RK4 integrator uses the pre-allocated q_accum buffer

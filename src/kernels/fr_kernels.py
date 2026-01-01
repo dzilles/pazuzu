@@ -1,14 +1,15 @@
 import warp as wp
 from src.physics.laws import euler
-from src.kernels import boundary_conditions as bc
+from src.numerics import riemann_solvers as rs
+from src.kernels import utils as u
 
 from typing import Any
 
 @wp.func
 def compute_interface_flux(q_L: Any, q_R: Any, nx: Any, ny: Any, params: Any):
     if params.flux_type == 1:
-        return euler.hllc_flux(q_L, q_R, nx, ny, params)
-    return euler.rusanov_flux(q_L, q_R, nx, ny, params)
+        return rs.hllc_flux(q_L, q_R, nx, ny, params)
+    return rs.rusanov_flux(q_L, q_R, nx, ny, params)
 
 @wp.kernel
 def compute_fr_update(
@@ -52,12 +53,12 @@ def compute_fr_update(
     domain_h = root_bounds[3] - root_bounds[1]
     
     template = q[0, 0][0]
-    f_grid_dim = bc.get_any_generic(template, grid_dim)
+    f_grid_dim = u.get_any_generic(template, grid_dim)
     dx = domain_w / f_grid_dim
     dy = domain_h / f_grid_dim
     
     # Geometric Factors: d/dx = (2/dx) * d/dr
-    one = bc.get_one_generic(template)
+    one = u.get_one_generic(template)
     two = one + one
     inv_J_x = two / dx
     inv_J_y = two / dy

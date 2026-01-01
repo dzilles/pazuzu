@@ -115,6 +115,9 @@ def run_vortex_simulation(precision_mode):
     domain_width = 1.0e-3
     
     initial_depth = 4
+
+    wp.init()
+    device = "cuda" if wp.is_cuda_available() else "cpu"
     
     config = PazuzuConfig(
         case_name=f"Vortex_{precision_mode}",
@@ -156,7 +159,7 @@ def run_vortex_simulation(precision_mode):
         ),
         simulation=SimulationConfig(
             t_final=domain_width / 1.0, # Time to cross domain
-            device="cuda"
+            device=device
         )
     )
     

@@ -5,7 +5,6 @@ from src.core.basis import Basis
 from src.core.simulation_state import SimulationState
 from src.geometry.quadtree import Quadtree, ROOT_BOUNDS
 
-@pytest.mark.parametrize("device", ["cpu"])
 def test_quadtree_uniform_refine(device):
     wp.init()
     
@@ -72,7 +71,6 @@ def test_quadtree_uniform_refine(device):
     assert np.allclose(x_host[0, :], [-1.0, 0.0, -1.0, 0.0], atol=1e-5)
     assert np.allclose(y_host[0, :], [-1.0, -1.0, 0.0, 0.0], atol=1e-5)
 
-@pytest.mark.parametrize("device", ["cpu"])
 def test_quadtree_connectivity(device):
     """Test neighbor finding logic for a uniform grid."""
     wp.init()
@@ -112,7 +110,6 @@ def test_quadtree_connectivity(device):
     assert neighbors[3, 2] == 1  # Bottom (BR)
     assert neighbors[3, 3] == -1 # Top
 
-@pytest.mark.parametrize("device", ["cpu"])
 def test_quadtree_connectivity_level2(device):
     """Test connectivity for a Level 2 (4x4 = 16 blocks) grid with internal blocks."""
     wp.init()
@@ -147,7 +144,6 @@ def test_quadtree_connectivity_level2(device):
     assert neighbors[idx_corner, 2] == 11 # Bottom (3, 2)
     assert neighbors[idx_corner, 3] == -1 # Top
 
-@pytest.mark.parametrize("device", ["cpu"])
 def test_quadtree_limits(device):
     """Test error handling for Quadtree limits."""
     wp.init()
@@ -165,7 +161,6 @@ def test_quadtree_limits(device):
     with pytest.raises(ValueError, match="MAX_DEPTH"):
         quadtree_big.uniform_refine(11, state, basis)
 
-@pytest.mark.parametrize("device", ["cpu"])
 def test_morton_encoding_logic(device):
     from src.geometry.quadtree import morton_encode
     

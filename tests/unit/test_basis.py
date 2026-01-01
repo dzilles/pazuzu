@@ -9,14 +9,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../s
 
 from core.basis import Basis
 
-@pytest.fixture(scope="module")
-def device():
-    # Initialize Warp once
-    wp.init()
-    if wp.is_cuda_available():
-        return "cpu" # Force CPU for unit tests to be safe/simpler
-    return "cpu"
-
 def test_initialization(device):
     N = 2
     basis = Basis(polynomial_degree=N, device=device)

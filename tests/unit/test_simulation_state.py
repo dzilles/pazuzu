@@ -3,12 +3,11 @@ import warp as wp
 import numpy as np
 from src.core.simulation_state import SimulationState
 
-@pytest.mark.parametrize("device", ["cpu"])
 def test_simulation_state_allocation(device):
-    """Verify that SimulationState allocates buffers with the correct Memory Pool shape."""
-    wp.init()
-    
-    Np = 16 # e.g., N=3 -> (3+1)^2
+    """
+    Verifies that SimulationState allocates buffers of correct size and type on the specified device.
+    """
+    Np = 16
     max_blocks = 100
     
     # vec4 state (Euler), float32 scalars

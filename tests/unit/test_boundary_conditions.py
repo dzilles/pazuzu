@@ -12,11 +12,6 @@ from src.kernels import boundary_conditions as bc
 from src.kernels.structs import EquationParams32, BoundaryState32
 
 @pytest.fixture(scope="module")
-def device():
-    wp.init()
-    return "cpu"
-
-@pytest.fixture(scope="module")
 def params():
     p = EquationParams32()
     p.gamma = 1.4
