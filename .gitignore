@@ -8,3 +8,5 @@ output/
 *.msh
 Scripts/
 work/
+*.h5
+*.xmf
