@@ -4,6 +4,7 @@ from typing import Any
 
 # Simple Linear Probing Hash Map constants
 EMPTY = -1
+MORTAR_FLAG = -2
 
 @wp.func
 def hash_int(k: int):
@@ -95,6 +96,31 @@ def populate_hash_map(
     map_insert(map_keys, map_values, capacity, key, pool_idx)
 
 @wp.kernel
+def mark_mortar_neighbors(
+    mortar_list: Any,
+    num_mortars: Any,
+    neighbors: Any
+):
+    tid = wp.tid()
+    count = num_mortars[0]
+    if tid >= count:
+        return
+        
+    # mortar_list: [fine_idx, face, coarse_idx, subface]
+    fine_face = mortar_list[tid, 1]
+    coarse_idx = mortar_list[tid, 2]
+    
+    # Opposing face
+    coarse_face = 0
+    if fine_face == 0: coarse_face = 1
+    elif fine_face == 1: coarse_face = 0
+    elif fine_face == 2: coarse_face = 3
+    elif fine_face == 3: coarse_face = 2
+    
+    # Mark coarse side as mortar too
+    neighbors[coarse_idx, coarse_face] = MORTAR_FLAG
+
+@wp.kernel
 def compute_neighbors(
     morton_codes: Any,
     block_levels: Any,
@@ -104,6 +130,9 @@ def compute_neighbors(
     map_values: Any,
     map_capacity: int,
     out_neighbors: Any, 
+    mortar_list: Any,       # (MAX_MORTARS, 4) int32
+    num_mortars: Any,       # (1) int32 counter
+    max_mortars: int,
     periodic_x: int, 
     periodic_y: int  
 ):
@@ -159,34 +188,39 @@ def compute_neighbors(
             n_idx = map_lookup(map_keys, map_values, map_capacity, key_n)
             
         # 2. If not found, look for COARSE neighbor (Parent)
-        # Note: We do NOT look for Finer neighbors here. 
-        # If the neighbor is finer, we point to -1 (Ghost handling will fix this later via the finer neighbor pointing to us).
-        if n_idx == -1 and level > 0:
-            # We must re-evaluate boundary conditions for the parent level?
-            # Actually, standard approach: Project coord to parent space.
-            # Parent coord: px = nx >> 1, py = ny >> 1.
-            # But wait, we need the neighbor of our PARENT.
-            # Let's think: "My left neighbor" might be a large block.
-            # Its coordinate in the coarse grid is (ix >> 1) - 1 ??
-            # No, if I am on the left edge of my parent, my neighbor is in a different parent.
-            # If I am on the right edge of my parent, my neighbor is my sibling.
+        if n_idx == -1 and level > 0 and valid_n == 1:
+            px = nx >> 1
+            py = ny >> 1
+            plevel = level - 1
             
-            # Simple approach: logic above computed (nx, ny) at fine level.
-            # If (nx, ny) falls into a coarse block, that coarse block covers (nx>>1, ny>>1).
-            # So, we check the parent key corresponding to (nx>>1, ny>>1).
+            pcode = morton_encode(px, py)
+            pkey = (pcode << 4) | plevel
+            n_idx = map_lookup(map_keys, map_values, map_capacity, pkey)
             
-            # Re-check boundary for parent level?
-            # If we wrapped around at fine level, (nx, ny) are valid fine coords.
-            # So (nx>>1, ny>>1) are valid coarse coords.
-            # If we hit valid_n=0 (physical boundary), we stop anyway.
-            
-            if valid_n == 1:
-                px = nx >> 1
-                py = ny >> 1
-                plevel = level - 1
+            if n_idx != -1:
+                # Found a Coarse Neighbor! This is a MORTAR interface.
+                # Mark neighbor as MORTAR_FLAG
                 
-                pcode = morton_encode(px, py)
-                pkey = (pcode << 4) | plevel
-                n_idx = map_lookup(map_keys, map_values, map_capacity, pkey)
+                # We record this interface in the mortar list.
+                # Only need to record it once per face per fine block.
+                
+                m_idx = wp.atomic_add(num_mortars, 0, 1)
+                if m_idx < max_mortars:
+                    # Subface calculation
+                    # If Face is Left/Right (0/1), subface depends on y (0=bottom, 1=top)
+                    # If Face is Bottom/Top (2/3), subface depends on x (0=left, 1=right)
+                    subface = 0
+                    if face < 2:
+                        subface = iy & 1
+                    else:
+                        subface = ix & 1
+                        
+                    mortar_list[m_idx, 0] = pool_idx
+                    mortar_list[m_idx, 1] = face
+                    mortar_list[m_idx, 2] = n_idx
+                    mortar_list[m_idx, 3] = subface
+                
+                # Update neighbor to flag
+                n_idx = MORTAR_FLAG
         
         out_neighbors[pool_idx, face] = n_idx

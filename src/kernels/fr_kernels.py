@@ -90,13 +90,17 @@ def compute_fr_update(
     
     neigh_L = neighbors[pool_idx, 0]
     q_L_ghost = q_L_internal # Default (Transmissive)
-    if neigh_L != -1:
+    if neigh_L >= 0:
         # Neighbor's Right boundary (i=N1-1)
         idx_neigh = j * N1 + (N1 - 1)
         q_L_ghost = q[neigh_L, idx_neigh]
         
     F_star_L = compute_interface_flux(q_L_ghost, q_L_internal, one, zero, params)
-    corr_x = (F_star_L - f_L_internal) * dg_L[i]
+    
+    # Correction: Skip if mortar (mortar kernel handles it)
+    corr_x = q[0, 0] - q[0, 0]
+    if neigh_L != -2:
+        corr_x = (F_star_L - f_L_internal) * dg_L[i]
     
     # Right Interface (i=N1-1)
     idx_R = j * N1 + (N1 - 1)
@@ -105,13 +109,14 @@ def compute_fr_update(
     
     neigh_R = neighbors[pool_idx, 1]
     q_R_ghost = q_R_internal
-    if neigh_R != -1:
+    if neigh_R >= 0:
         # Neighbor's Left boundary (i=0)
         idx_neigh = j * N1 + 0
         q_R_ghost = q[neigh_R, idx_neigh]
         
     F_star_R = compute_interface_flux(q_R_internal, q_R_ghost, one, zero, params)
-    corr_x += (F_star_R - f_R_internal) * dg_R[i]
+    if neigh_R != -2:
+        corr_x += (F_star_R - f_R_internal) * dg_R[i]
     
     corr_x *= inv_J_x
     
@@ -123,14 +128,16 @@ def compute_fr_update(
     
     neigh_B = neighbors[pool_idx, 2]
     q_B_ghost = q_B_internal
-    if neigh_B != -1:
+    if neigh_B >= 0:
         # Neighbor's Top boundary (j=N1-1)
         idx_neigh = (N1 - 1) * N1 + i
         q_B_ghost = q[neigh_B, idx_neigh]
         
     # Flux in Y direction, Normal=(0,1)
     G_star_B = compute_interface_flux(q_B_ghost, q_B_internal, zero, one, params)
-    corr_y = (G_star_B - g_B_internal) * dg_L[j] # Uses Left correction poly for Bottom (-1)
+    corr_y = q[0, 0] - q[0, 0]
+    if neigh_B != -2:
+        corr_y = (G_star_B - g_B_internal) * dg_L[j]
     
     # Top Interface (j=N1-1)
     idx_T = (N1 - 1) * N1 + i
@@ -139,13 +146,14 @@ def compute_fr_update(
     
     neigh_T = neighbors[pool_idx, 3]
     q_T_ghost = q_T_internal
-    if neigh_T != -1:
+    if neigh_T >= 0:
         # Neighbor's Bottom boundary (j=0)
         idx_neigh = 0 * N1 + i
         q_T_ghost = q[neigh_T, idx_neigh]
         
     G_star_T = compute_interface_flux(q_T_internal, q_T_ghost, zero, one, params)
-    corr_y += (G_star_T - g_T_internal) * dg_R[j] # Uses Right correction poly for Top (+1)
+    if neigh_T != -2:
+        corr_y += (G_star_T - g_T_internal) * dg_R[j]
     
     corr_y *= inv_J_y
     

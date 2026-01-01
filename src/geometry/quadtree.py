@@ -2,7 +2,7 @@ import warp as wp
 import numpy as np
 from typing import Tuple, Optional
 from src.kernels.grid_kernels import compute_block_coordinates, generate_morton_codes
-from src.kernels.connectivity_kernels import init_hash_map, populate_hash_map, compute_neighbors
+from src.kernels.connectivity_kernels import init_hash_map, populate_hash_map, compute_neighbors, mark_mortar_neighbors
 from src.kernels.amr_kernels import mark_blocks_gradient, prolongate_batch, restrict_batch, zero_blocks
 
 MAX_DEPTH = 10
@@ -59,6 +59,11 @@ class Quadtree:
         # Bounds as Warp vector
         vec4_type = wp.vec4d if dtype == wp.float64 else wp.vec4
         self.root_bounds_wp = vec4_type(root_bounds[0], root_bounds[1], root_bounds[2], root_bounds[3])
+        
+        # Mortar Interfaces (Phase 4)
+        self.max_mortars = max_blocks * 4
+        self.mortar_list = wp.zeros((self.max_mortars, 4), dtype=wp.int32, device=device)
+        self.num_mortars = wp.zeros(1, dtype=wp.int32, device=device)
 
     def uniform_refine(self, level: int, state, basis):
         """
@@ -131,14 +136,6 @@ class Quadtree:
     def refine_marked_blocks(self, state, basis, threshold: float):
         """
         Refines active blocks based on a gradient threshold.
-        
-        Pipeline:
-        1. Mark: Launch kernel to flag blocks where gradient > threshold.
-        2. Filter: Identify flagged blocks on Host.
-        3. Allocate: Pop free indices for children.
-        4. Prolongate: Interpolate state from Parent -> Children.
-        5. Topology: Update Morton codes, levels, and Active List.
-        6. Rebuild Connectivity.
         """
         # --- Step A: Mark ---
         refine_flags = wp.zeros(self.max_blocks, dtype=wp.int32, device=self.device)
@@ -156,8 +153,7 @@ class Quadtree:
             device=self.device
         )
         
-        # --- Step B: Filter (Host Side logic for topology) ---
-        # Fetch flags and active indices
+        # --- Step B: Filter ---
         h_flags = refine_flags.numpy()
         h_active = state.active_block_indices.numpy()[:self.num_blocks]
         
@@ -166,6 +162,13 @@ class Quadtree:
             if h_flags[idx] == 1:
                 blocks_to_refine.append(idx)
                 
+        self.refine_blocks(blocks_to_refine, state, basis)
+
+    def refine_blocks(self, blocks_to_refine: list, state, basis):
+        """
+        Refines explicit blocks by splitting them into 4 children.
+        Includes data prolongation and topology updates.
+        """
         if not blocks_to_refine:
             return
 
@@ -189,6 +192,7 @@ class Quadtree:
         # --- Step C: Allocate & Topology Update ---
         h_morton_codes = self.block_morton_codes.numpy()
         h_free_indices = self.free_pool_indices.numpy()
+        h_active = state.active_block_indices.numpy()[:self.num_blocks]
         free_ptr = 0
         
         new_active_list = []
@@ -241,15 +245,10 @@ class Quadtree:
                 new_active_list.append(idx)
         
         # Add ALL new children
-        # Iterate efficiently: we know we added 4*num_refine blocks from h_free_indices[0:free_ptr]
         used_children = h_free_indices[0 : free_ptr]
         new_active_list.extend(used_children)
         
         # Recycle parents
-        # Shift free list logic:
-        # consumed `free_ptr` from front.
-        # need to append `parents_to_remove` to free list.
-        
         remaining_free = h_free_indices[free_ptr : self.num_free]
         freed_parents = list(parents_to_remove)
         
@@ -480,6 +479,8 @@ class Quadtree:
         )
         
         # 3. Compute Neighbors
+        self.num_mortars.zero_()
+        
         wp.launch(
             kernel=compute_neighbors,
             dim=self.num_blocks,
@@ -492,12 +493,25 @@ class Quadtree:
                 self.map_values,
                 self.map_capacity,
                 state.neighbors,
+                self.mortar_list,
+                self.num_mortars,
+                self.max_mortars,
                 # level removed
                 int(self.periodic_x),
                 int(self.periodic_y)
             ],
             device=self.device
         )
+        
+        # 4. Mark Coarse Mortars
+        num_mortars_host = int(self.num_mortars.numpy()[0])
+        if num_mortars_host > 0:
+            wp.launch(
+                kernel=mark_mortar_neighbors,
+                dim=num_mortars_host,
+                inputs=[self.mortar_list, self.num_mortars, state.neighbors],
+                device=self.device
+            )
 
 
     def get_bounds(self, morton_code: int) -> Tuple[float, float, float, float]:
