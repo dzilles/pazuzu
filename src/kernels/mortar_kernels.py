@@ -93,15 +93,15 @@ def compute_mortar_fluxes(
         # Use (1,0) or (0,1)
         F_star = zero_v
         if face == 1 or face == 3: 
-            if face == 3: # Fine is Left, Coarse is Right
-                F_star = rusanov_flux(q_f, q_c_proj, one_s, zero_s, params)
-            else: # Fine is Right, Coarse is Left
+            if face == 3: # Fine is Right, Coarse is Left
                 F_star = rusanov_flux(q_c_proj, q_f, one_s, zero_s, params)
+            else: # Fine is Left, Coarse is Right
+                F_star = rusanov_flux(q_f, q_c_proj, one_s, zero_s, params)
         else:
-            if face == 0: # Fine is Bottom, Coarse is Top
-                F_star = rusanov_flux(q_f, q_c_proj, zero_s, one_s, params)
-            else: # Fine is Top, Coarse is Bottom
+            if face == 0: # Fine is Top, Coarse is Bottom
                 F_star = rusanov_flux(q_c_proj, q_f, zero_s, one_s, params)
+            else: # Fine is Bottom, Coarse is Top
+                F_star = rusanov_flux(q_f, q_c_proj, zero_s, one_s, params)
         
         # 4. Apply Correction to Fine Block (Volume)
         # jump = F*_pos - f_int_pos
