@@ -23,16 +23,21 @@ def compute_errors(solver):
     Lx = solver.config.mesh.x_max - solver.config.mesh.x_min
     Ly = solver.config.mesh.y_max - solver.config.mesh.y_min
 
-    # Calculate effective time for periodic boundaries
-    # The exact solution kernel moves the vortex indefinitely.
-    # For periodic domains, we wrap the time so the vortex center matches the wrapped domain.
-    t_eff = solver.state.t
-    if solver.config.mesh.periodic_x and abs(solver.params.u_inf) > 1e-9:
-        period = Lx / abs(solver.params.u_inf)
-        t_eff = solver.state.t % period
-        # Handle case where modulo result is very close to period (float precision)
-        if abs(t_eff - period) < 1e-9:
-            t_eff = 0.0
+    # Calculate effective center for periodic boundaries
+    # The exact solution kernel moves the vortex center by u_inf * t.
+    # For periodic domains, we wrap the center so it stays within the primary domain.
+    x0 = float(solver.config.initial_condition.params.get('center_x', 0.0))
+    y0 = float(solver.config.initial_condition.params.get('center_y', 0.0))
+    
+    if solver.config.mesh.periodic_x:
+        x0 = ((x0 + float(solver.params.u_inf) * solver.state.t - solver.config.mesh.x_min) % Lx) + solver.config.mesh.x_min
+    else:
+        x0 = x0 + float(solver.params.u_inf) * solver.state.t
+        
+    if solver.config.mesh.periodic_y:
+        y0 = ((y0 + float(solver.params.v_inf) * solver.state.t - solver.config.mesh.y_min) % Ly) + solver.config.mesh.y_min
+    else:
+        y0 = y0 + float(solver.params.v_inf) * solver.state.t
 
     # 2. Compute Exact Solution at t_final
     q_exact_wp = wp.zeros_like(solver.state.q)
@@ -47,11 +52,11 @@ def compute_errors(solver):
             solver.state.active_block_indices,
             solver.quadtree.num_blocks,
             solver.params,
-            solver.scalar_dtype(t_eff),
+            solver.scalar_dtype(0.0), # Set t=0 as we already wrapped centers
             solver.scalar_dtype(float(solver.config.initial_condition.params.get('beta', 5.0))),
             solver.scalar_dtype(float(solver.config.initial_condition.params.get('radius', 1.0))),
-            solver.scalar_dtype(float(solver.config.initial_condition.params.get('center_x', 0.0))),
-            solver.scalar_dtype(float(solver.config.initial_condition.params.get('center_y', 0.0)))
+            solver.scalar_dtype(x0),
+            solver.scalar_dtype(y0)
         ],
         device=solver.device
     )

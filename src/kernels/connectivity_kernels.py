@@ -21,7 +21,8 @@ def map_insert(keys: Any, values: Any, capacity: int, key: int, value: int):
     """
     Thread-safe insertion using Atomic Compare-And-Swap (CAS).
     """
-    slot = hash_int(key) % capacity
+    h = hash_int(key)
+    slot = (h & 0x7FFFFFFF) % capacity
     start_slot = slot
     
     while True:
@@ -50,7 +51,8 @@ def map_insert(keys: Any, values: Any, capacity: int, key: int, value: int):
 
 @wp.func
 def map_lookup(keys: Any, values: Any, capacity: int, key: int):
-    slot = hash_int(key) % capacity
+    h = hash_int(key)
+    slot = (h & 0x7FFFFFFF) % capacity
     start_slot = slot
     
     while True:

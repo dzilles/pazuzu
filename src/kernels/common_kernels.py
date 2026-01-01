@@ -6,13 +6,16 @@ def rk_stage_1(
     q: Any,
     rhs: Any,
     dt: Any,
-    q_out: Any
+    q_out: Any,
+    active_indices: Any
 ):
     """
     Performs the first stage of the Low-Storage SSP-RK3 time integration scheme.
     """
-    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
-    q_out[e, i] = q[e, i] + dt * rhs[e, i]  # type: ignore # Warp type inference
+    block_idx, node_idx = wp.tid()
+    pool_idx = active_indices[block_idx]
+    
+    q_out[pool_idx, node_idx] = q[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx]
 
 @wp.kernel
 def rk_stage_2(
@@ -22,15 +25,17 @@ def rk_stage_2(
     dt: Any,
     q_out: Any,   # Destination for Q(2)
     c1: Any, # 0.75
-    c2: Any  # 0.25
+    c2: Any, # 0.25
+    active_indices: Any
 ):
     """
     Performs the second stage of the Low-Storage SSP-RK3 time integration scheme.
     """
-    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
+    block_idx, node_idx = wp.tid()
+    pool_idx = active_indices[block_idx]
     
     # 0.75 * Q_n + 0.25 * (Q_1 + dt * RHS)
-    q_out[e, i] = c1 * q[e, i] + c2 * (q_1[e, i] + dt * rhs[e, i])  # type: ignore # Warp type inference
+    q_out[pool_idx, node_idx] = c1 * q[pool_idx, node_idx] + c2 * (q_1[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx])
 
 @wp.kernel
 def rk_stage_3(
@@ -40,39 +45,17 @@ def rk_stage_3(
     dt: Any,
     q_out: Any,   # Destination for Q(n+1)
     c1: Any, # 1/3
-    c2: Any  # 2/3
+    c2: Any,  # 2/3
+    active_indices: Any
     ):
     """
     Performs the third and final stage of the Low-Storage SSP-RK3 time integration scheme.
     """
-    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
+    block_idx, node_idx = wp.tid()
+    pool_idx = active_indices[block_idx]
     
     # 1/3 * Q_n + 2/3 * (Q_2 + dt * RHS)
-    q_out[e, i] = c1 * q[e, i] + c2 * (q_2[e, i] + dt* rhs[e, i])  # type: ignore # Warp type inference
-
-@wp.kernel
-def apply_filter_matrix(
-    q: Any,
-    filter_matrix: Any,
-    q_out: Any
-):
-    """
-    Applies the spectral filter matrix to the state vector.
-    """
-    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime # i is the node index (row of output)
-    
-    Np = filter_matrix.shape[1]
-    
-    # Generic zero initialization
-    val = q[e, i] - q[e, i]  # type: ignore # Warp type inference
-    
-    for j in range(Np):
-        f = filter_matrix[i, j]  # type: ignore # Warp type inference
-        q_val = q[e, j]  # type: ignore # Warp type inference
-        # f is from filter_matrix, which matches dtype.
-        val = val + q_val * f
-        
-    q_out[e, i] = val  # type: ignore # Warp type inference
+    q_out[pool_idx, node_idx] = c1 * q[pool_idx, node_idx] + c2 * (q_2[pool_idx, node_idx] + dt* rhs[pool_idx, node_idx])
 
 @wp.kernel
 def rk4_stage_update(
@@ -82,7 +65,8 @@ def rk4_stage_update(
     q_next: Any,
     dt: Any,
     weight_accum: Any,
-    weight_next: Any
+    weight_next: Any,
+    active_indices: Any
 ):
     """
     Updates the accumulator and prepares the next stage state for RK4.
@@ -90,25 +74,30 @@ def rk4_stage_update(
     q_accum += weight_accum * dt * rhs
     q_next = q_old + weight_next * dt * rhs
     """
-    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
-    term = dt * rhs[e, i]  # type: ignore # Warp type inference
-    q_accum[e, i] = q_accum[e, i] + weight_accum * term  # type: ignore # Warp type inference
-    q_next[e, i] = q_old[e, i] + weight_next * term  # type: ignore # Warp type inference
+    block_idx, node_idx = wp.tid()
+    pool_idx = active_indices[block_idx]
+    
+    term = dt * rhs[pool_idx, node_idx]
+    q_accum[pool_idx, node_idx] = q_accum[pool_idx, node_idx] + weight_accum * term
+    q_next[pool_idx, node_idx] = q_old[pool_idx, node_idx] + weight_next * term
 
 @wp.kernel
 def rk4_final_update(
     rhs: Any,
     q_accum: Any,
     dt: Any,
-    weight_accum: Any
+    weight_accum: Any,
+    active_indices: Any
 ):
     """
     Performs the final update to the accumulator for RK4.
     
     q_accum += weight_accum * dt * rhs
     """
-    e, i = wp.tid()  # type: ignore # Warp returns a tuple at runtime
-    q_accum[e, i] = q_accum[e, i] + weight_accum * dt * rhs[e, i]  # type: ignore # Warp type inference
+    block_idx, node_idx = wp.tid()
+    pool_idx = active_indices[block_idx]
+    
+    q_accum[pool_idx, node_idx] = q_accum[pool_idx, node_idx] + weight_accum * dt * rhs[pool_idx, node_idx]
 
 @wp.kernel
 def check_nan(

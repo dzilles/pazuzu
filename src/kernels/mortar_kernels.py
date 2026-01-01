@@ -42,8 +42,9 @@ def compute_mortar_fluxes(
     domain_w = root_bounds[2] - root_bounds[0]
     domain_h = root_bounds[3] - root_bounds[1]
     
-    zero_v = q[0, 0] - q[0, 0]
-    zero_s = q[0, 0][0] - q[0, 0][0]
+    template = q[0, 0][0]
+    zero_s = template - template
+    zero_v = u.make_vec4_generic(zero_s, zero_s, zero_s, zero_s)
     one_s = u.get_one_generic(zero_s)
     half_s = u.get_half_generic(zero_s)
     two_s = one_s + one_s

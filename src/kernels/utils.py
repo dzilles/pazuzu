@@ -78,7 +78,7 @@ def set_vec4_generic(v: wp.vec4, i: int, val: wp.float32):
         res = wp.vec4(v[0], v[1], v[2], val)
     return res
 
-@wp.func # type: ignore # Warp handles overloading
+@wp.func
 def set_vec4_generic(v: wp.vec4d, i: int, val: wp.float64):  # noqa: F811 # type: ignore # Warp handles overloading
     # type: ignore
     res = v
@@ -91,3 +91,12 @@ def set_vec4_generic(v: wp.vec4d, i: int, val: wp.float64):  # noqa: F811 # type
     elif i == 3:
         res = wp.vec4d(v[0], v[1], v[2], val)
     return res
+
+@wp.func
+def get_zero_vec4_generic(template: wp.vec4):
+    return wp.vec4(0.0, 0.0, 0.0, 0.0)
+
+@wp.func # type: ignore
+def get_zero_vec4_generic(template: wp.vec4d): # noqa: F811
+    # type: ignore
+    return wp.vec4d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0), wp.float64(0.0))

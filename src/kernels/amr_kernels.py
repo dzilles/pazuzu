@@ -47,7 +47,9 @@ def zero_blocks(
         return
         
     pool_idx = block_indices[tid_block]
-    q[pool_idx, tid_node] = q[0, 0] - q[0, 0]
+    template = q[0, 0][0]
+    zero = template - template
+    q[pool_idx, tid_node] = u.make_vec4_generic(zero, zero, zero, zero)
 
 @wp.func
 def prolongate_block_func(
@@ -69,13 +71,15 @@ def prolongate_block_func(
     use_right_col = (child_quadrant % 2 != 0)
 
     # Accumulate result vector
-    res = parent_q[0, 0] - parent_q[0, 0]
+    template = parent_q[0, 0][0]
+    zero = template - template
+    res = u.make_vec4_generic(zero, zero, zero, zero)
     
     for k in range(N1):
         p_row_val = P_left[row, k]
         if use_right_row: p_row_val = P_right[row, k]
             
-        inner_sum = parent_q[0, 0] - parent_q[0, 0]
+        inner_sum = u.make_vec4_generic(zero, zero, zero, zero)
         for l in range(N1):
             p_col_val = P_left[col, l]
             if use_right_col: p_col_val = P_right[col, l]
@@ -129,13 +133,15 @@ def restrict_block_func(
     use_right_row = (child_quadrant >= 2)
     use_right_col = (child_quadrant % 2 != 0)
 
-    res = child_q[0, 0] - child_q[0, 0]
+    template = child_q[0, 0][0]
+    zero = template - template
+    res = u.make_vec4_generic(zero, zero, zero, zero)
     
     for k in range(N1):
         r_row_val = R_left[row, k]
         if use_right_row: r_row_val = R_right[row, k]
             
-        inner_sum = child_q[0, 0] - child_q[0, 0]
+        inner_sum = u.make_vec4_generic(zero, zero, zero, zero)
         for l in range(N1):
             r_col_val = R_left[col, l]
             if use_right_col: r_col_val = R_right[col, l]

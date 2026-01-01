@@ -66,7 +66,9 @@ def compute_fr_update(
     zero = one - one
     
     # --- 1. Volume Gradient (Divergence) ---
-    val_div = q[0, 0] - q[0, 0] # Generic zero vector of correct precision
+    template = q[0, 0][0]
+    zero = template - template
+    val_div = u.make_vec4_generic(zero, zero, zero, zero)
     
     # Loop over k (1D line)
     for k in range(N1):
@@ -104,7 +106,7 @@ def compute_fr_update(
     F_star_L = compute_interface_flux(q_L_ghost, q_L_internal, one, zero, params)
     
     # Correction: Skip if mortar (mortar kernel handles it)
-    corr_x = q[0, 0] - q[0, 0]
+    corr_x = u.make_vec4_generic(zero, zero, zero, zero)
     if neigh_L != -2:
         corr_x = (F_star_L - f_L_internal) * dg_L[i]
     
@@ -149,7 +151,7 @@ def compute_fr_update(
         
     # Flux in Y direction, Normal=(0,1)
     G_star_B = compute_interface_flux(q_B_ghost, q_B_internal, zero, one, params)
-    corr_y = q[0, 0] - q[0, 0]
+    corr_y = u.make_vec4_generic(zero, zero, zero, zero)
     if neigh_B != -2:
         corr_y = (G_star_B - g_B_internal) * dg_L[j]
     

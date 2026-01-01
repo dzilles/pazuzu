@@ -105,6 +105,12 @@ class Basis:
         R_left = M_inv @ RHS_left
         R_right = M_inv @ RHS_right
         
+        # Validation: Ensure matrices are not all zeros
+        assert np.any(P_left != 0.0), "P_left matrix is uninitialized (all zeros)."
+        assert np.any(P_right != 0.0), "P_right matrix is uninitialized (all zeros)."
+        assert np.any(R_left != 0.0), "R_left matrix is uninitialized (all zeros)."
+        assert np.any(R_right != 0.0), "R_right matrix is uninitialized (all zeros)."
+
         # Transfer data to Warp arrays (cast to target dtype here)
         vec2_type = wp.vec2d if dtype == wp.float64 else wp.vec2
         

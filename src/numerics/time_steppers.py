@@ -42,7 +42,8 @@ class TimeIntegrator:
                 self.state.q_temp,  # q_next
                 scalar_dtype(dt),
                 scalar_dtype(1.0/6.0), # weight_accum
-                scalar_dtype(0.5)      # weight_next
+                scalar_dtype(0.5),      # weight_next
+                self.state.active_block_indices
             ],
             device=self.state.device
         )
@@ -63,7 +64,8 @@ class TimeIntegrator:
                 self.state.q_temp,
                 scalar_dtype(dt),
                 scalar_dtype(1.0/3.0),
-                scalar_dtype(0.5)
+                scalar_dtype(0.5),
+                self.state.active_block_indices
             ],
             device=self.state.device
         )
@@ -84,7 +86,8 @@ class TimeIntegrator:
                 self.state.q_temp,
                 scalar_dtype(dt),
                 scalar_dtype(1.0/3.0),
-                scalar_dtype(1.0)
+                scalar_dtype(1.0),
+                self.state.active_block_indices
             ],
             device=self.state.device
         )
@@ -107,7 +110,8 @@ class TimeIntegrator:
                 self.state.rhs,     # k4
                 self.state.q_accum,
                 scalar_dtype(dt),
-                scalar_dtype(1.0/6.0)
+                scalar_dtype(1.0/6.0),
+                self.state.active_block_indices
             ],
             device=self.state.device
         )
@@ -123,7 +127,8 @@ class TimeIntegrator:
                 self.state.q,
                 self.state.q_accum,
                 scalar_dtype(1.0),
-                self.state.q
+                self.state.q,
+                self.state.active_block_indices
             ],
             device=self.state.device
         )
@@ -144,7 +149,8 @@ class TimeIntegrator:
                 self.state.q,
                 self.state.rhs,
                 scalar_dtype(dt),
-                self.state.q_temp # Output to Temp
+                self.state.q_temp, # Output to Temp
+                self.state.active_block_indices
             ],
             device=self.state.device
         )
@@ -165,7 +171,8 @@ class TimeIntegrator:
                 scalar_dtype(dt),
                 self.state.q_temp,  # Output Q(2)
                 scalar_dtype(0.75),
-                scalar_dtype(0.25)
+                scalar_dtype(0.25),
+                self.state.active_block_indices
             ],
             device=self.state.device
         )
@@ -188,7 +195,8 @@ class TimeIntegrator:
                 scalar_dtype(dt),
                 self.state.q,      # Output Q_n+1
                 scalar_dtype(1.0/3.0),
-                scalar_dtype(2.0/3.0)
+                scalar_dtype(2.0/3.0),
+                self.state.active_block_indices
             ],
             device=self.state.device
         )

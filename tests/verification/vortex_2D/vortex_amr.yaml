@@ -3,8 +3,8 @@ solver_type: "euler_2d"
 
 physics:
   gamma: 1.4
-  u_inf: 0.0
-  v_inf: 0.0
+  u_inf: 1.0
+  v_inf: 1.0
   p_inf: 1.0
   rho_inf: 1.0
   gas_constant: 1.0
@@ -28,19 +28,19 @@ io:
   output_dir: "output_amr"
 
 simulation:
-  t_final: 2
+  t_final: 5
   device: "cpu"
-  max_steps: 1000
+  max_steps: 5000
 
 amr:
   max_blocks: 2000
-  initial_depth: 2
-  max_depth: 3
+  initial_depth: 4
+  max_depth: 5
   refinement_threshold: 0.01
   refine_interval: 10
 
 numerics:
-  polynomial_order: 1
+  polynomial_order: 2
   precision: "double"
   cfl: 0.1
   dt_min: 1.0e-14
