@@ -46,6 +46,9 @@ class InitialConditionConfig(BaseModel):
 class AmrConfig(BaseModel):
     max_blocks: int = Field(default=10000, gt=0, description="Maximum number of blocks in the memory pool")
     initial_depth: int = Field(default=3, ge=0, description="Initial refinement depth (uniform)")
+    max_depth: int = Field(default=10, ge=0, description="Maximum allowed refinement depth")
+    refinement_threshold: Optional[float] = Field(default=None, description="Gradient threshold for adaptive refinement")
+    refine_interval: int = Field(default=0, ge=0, description="Steps between AMR updates (0 to disable dynamic AMR)")
 
 class MeshConfig(BaseModel):
     x_min: float = Field(default=-1.0, description="Domain x-min")

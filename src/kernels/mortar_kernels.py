@@ -49,21 +49,16 @@ def compute_mortar_fluxes(
     two_s = one_s + one_s
     
     # Normal and Opposing Face
-    nx = zero_s
-    ny = zero_s
+    # We use POSITIVE normals for consistent jump logic matching dg_L/dg_R
     coarse_face = 0
-    if face == 0: # Left
-        nx = -one_s
-        coarse_face = 1
-    elif face == 1: # Right
-        nx = one_s
-        coarse_face = 0
-    elif face == 2: # Bottom
-        ny = -one_s
-        coarse_face = 3
-    elif face == 3: # Top
-        ny = one_s
-        coarse_face = 2
+    if face == 0: # Fine Left
+        coarse_face = 1 # Coarse Right
+    elif face == 1: # Fine Right
+        coarse_face = 0 # Coarse Left
+    elif face == 2: # Fine Bottom
+        coarse_face = 3 # Coarse Top
+    elif face == 3: # Fine Top
+        coarse_face = 2 # Coarse Bottom
         
     # Jacobians
     level_f = block_levels[fine_idx]
@@ -81,14 +76,17 @@ def compute_mortar_fluxes(
     if face >= 2: inv_J_c = two_s / dy_c
 
     # 3. Compute Interface Fluxes (F*)
+    # All fluxes along POSITIVE x or y
     for k in range(N1):
         idx_f = face_nodes[face, k]
         q_f = q[fine_idx, idx_f]
         
+        # Internal flux component along POSITIVE axis
         f_int_f = zero_v
-        if face < 2: f_int_f = euler.flux_x(q_f, params) * nx
-        else:        f_int_f = euler.flux_y(q_f, params) * ny
+        if face < 2: f_int_f = euler.flux_x(q_f, params)
+        else:        f_int_f = euler.flux_y(q_f, params)
         
+        # Projected Coarse state
         q_c_proj = zero_v
         for m in range(N1):
             idx_c = face_nodes[coarse_face, m]
@@ -96,15 +94,26 @@ def compute_mortar_fluxes(
             if subface == 1: weight = P_right[k, m]
             q_c_proj += q[coarse_idx, idx_c] * weight
             
-        F_star = rusanov_flux(q_f, q_c_proj, nx, ny, params)
-        jump_f = F_star - f_int_f
+        # Numerical Flux (F*) along POSITIVE axis
+        # Use (1,0) or (0,1)
+        F_star = zero_v
+        if face < 2: 
+            if face == 0: # Fine is R, Coarse is L
+                F_star = rusanov_flux(q_c_proj, q_f, one_s, zero_s, params)
+            else: # Fine is L, Coarse is R
+                F_star = rusanov_flux(q_f, q_c_proj, one_s, zero_s, params)
+        else:
+            if face == 2: # Fine is R, Coarse is L
+                F_star = rusanov_flux(q_c_proj, q_f, zero_s, one_s, params)
+            else: # Fine is L, Coarse is R
+                F_star = rusanov_flux(q_f, q_c_proj, zero_s, one_s, params)
         
         # 4. Apply Correction to Fine Block (Volume)
+        # jump = F*_pos - f_int_pos
+        jump_f = F_star - f_int_f
+        
         dg_val_f = dg_L
-        sign_f = one_s
-        if (face == 1) or (face == 3): 
-            dg_val_f = dg_R
-            sign_f = -one_s
+        if (face == 1) or (face == 3): dg_val_f = dg_R
         
         for ii in range(N1):
             xi_idx = ii
@@ -112,20 +121,17 @@ def compute_mortar_fluxes(
             else:        node_idx = ii * N1 + k
             
             w_corr = dg_val_f[xi_idx]
-            wp.atomic_add(rhs, fine_idx, node_idx, sign_f * jump_f * w_corr * inv_J_f)
+            wp.atomic_add(rhs, fine_idx, node_idx, -jump_f * w_corr * inv_J_f)
             
         # 5. Apply Correction to Coarse Block (Volume)
         dg_val_c = dg_L
-        sign_c = one_s
-        if (coarse_face == 1) or (coarse_face == 3): 
-            dg_val_c = dg_R
-            sign_c = -one_s
+        if (coarse_face == 1) or (coarse_face == 3): dg_val_c = dg_R
         
         for m in range(N1):
             weight_r = R_left[m, k]
             if subface == 1: weight_r = R_right[m, k]
             
-            f_star_c_jump_contrib = -F_star * weight_r
+            f_star_c_contrib = F_star * weight_r
             
             for ii in range(N1):
                 xi_idx_c = ii
@@ -133,22 +139,20 @@ def compute_mortar_fluxes(
                 else:               node_idx_c = ii * N1 + m
                 
                 w_corr_c = dg_val_c[xi_idx_c]
-                wp.atomic_add(rhs, coarse_idx, node_idx_c, sign_c * f_star_c_jump_contrib * w_corr_c * inv_J_c)
+                # RHS_c -= F_star part
+                wp.atomic_add(rhs, coarse_idx, node_idx_c, -f_star_c_contrib * w_corr_c * inv_J_c)
                 
     # 6. Finalize Coarse Internal Correction
-    sign_c = one_s
     dg_val_c = dg_L
-    if (coarse_face == 1) or (coarse_face == 3): 
-        dg_val_c = dg_R
-        sign_c = -one_s
+    if (coarse_face == 1) or (coarse_face == 3): dg_val_c = dg_R
 
     for m in range(N1):
         idx_c_m = face_nodes[coarse_face, m]
         q_c_m = q[coarse_idx, idx_c_m]
         
         f_int_c_m = zero_v
-        if face < 2: f_int_c_m = euler.flux_x(q_c_m, params) * (-nx)
-        else:        f_int_c_m = euler.flux_y(q_c_m, params) * (-ny)
+        if face < 2: f_int_c_m = euler.flux_x(q_c_m, params)
+        else:        f_int_c_m = euler.flux_y(q_c_m, params)
         
         for ii in range(N1):
             xi_idx_c = ii
@@ -156,4 +160,5 @@ def compute_mortar_fluxes(
             else:               node_idx_c = ii * N1 + m
             
             w_corr_c = dg_val_c[xi_idx_c]
-            wp.atomic_add(rhs, coarse_idx, node_idx_c, -sign_c * f_int_c_m * half_s * w_corr_c * inv_J_c)
+            # RHS_c += f_int_c part
+            wp.atomic_add(rhs, coarse_idx, node_idx_c, f_int_c_m * half_s * w_corr_c * inv_J_c)

@@ -9,6 +9,7 @@ from src.geometry.quadtree import Quadtree
 from src.numerics.time_steppers import TimeIntegrator
 from src.kernels.structs import EquationParams32, EquationParams64
 from src.kernels.fr_kernels import compute_fr_update
+from src.kernels.mortar_kernels import compute_mortar_fluxes
 from src.kernels.initial_conditions import init_isentropic_vortex
 from src.kernels.common_kernels import check_nan_indirect
 from src.io.data_writer import HDF5Writer
@@ -76,6 +77,14 @@ class PazuzuSolver:
         # 6. Initial Condition (Mesh Generation)
         self._init_mesh()
         self._apply_initial_condition()
+        
+        # Initial Adaptation
+        if self.config.amr.refinement_threshold is not None:
+            print(f"Performing initial adaptation (threshold={self.config.amr.refinement_threshold})...")
+            self.quadtree.refine_marked_blocks(self.state, self.basis, self.config.amr.refinement_threshold)
+            # Optional: Re-apply IC to get exact values on fine nodes
+            print("Re-applying IC on refined mesh...")
+            self._apply_initial_condition()
 
         # 7. Initialize Writer
         output_dir = self.config.io.output_dir
@@ -198,6 +207,33 @@ class PazuzuSolver:
             ],
             device=self.device
         )
+        
+        # 2. Mortar Interface Corrections (AMR)
+        # We need to use the counter on device.
+        num_mortars_host = int(self.quadtree.num_mortars.numpy()[0])
+        if num_mortars_host > 0:
+            wp.launch(
+                kernel=compute_mortar_fluxes,
+                dim=num_mortars_host,
+                inputs=[
+                    q_in,
+                    rhs_out,
+                    self.quadtree.mortar_list,
+                    self.quadtree.num_mortars,
+                    self.basis.nodes_1d,
+                    self.basis.face_nodes,
+                    self.basis.dg_L,
+                    self.basis.dg_R,
+                    self.basis.P_left,
+                    self.basis.P_right,
+                    self.basis.R_left,
+                    self.basis.R_right,
+                    self.quadtree.root_bounds_wp,
+                    self.quadtree.block_levels,
+                    self.params
+                ],
+                device=self.device
+            )
 
     def compute_dt(self):
         if self.config.numerics.dt_static is not None:
@@ -278,6 +314,11 @@ class PazuzuSolver:
             t += dt
             self.state.t = t
             self.state.step += 1
+            
+            # Dynamic AMR
+            if self.config.amr.refine_interval > 0 and self.state.step % self.config.amr.refine_interval == 0:
+                print(f"Adapting mesh at step {self.state.step}...")
+                self.quadtree.refine_marked_blocks(self.state, self.basis, self.config.amr.refinement_threshold)
             
             if self.state.step % log_freq == 0:
                 # NaN Check

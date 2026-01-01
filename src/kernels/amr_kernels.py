@@ -1,6 +1,8 @@
 import warp as wp
 from typing import Any
 
+from src.kernels import utils as u
+
 @wp.kernel
 def mark_blocks_gradient(
     q: Any,                 # (MAX_BLOCKS, Np) vec4
@@ -18,8 +20,9 @@ def mark_blocks_gradient(
     # Compute min/max of density (component 0)
     Np = q.shape[1]
     
-    rho_min = float(1.0e20)
-    rho_max = float(-1.0e20)
+    # Use utility to get correct precision
+    rho_min = u.get_any_generic(q[0, 0][0], 1.0e20)
+    rho_max = u.get_any_generic(q[0, 0][0], -1.0e20)
     
     for i in range(Np):
         rho = q[pool_idx, i][0]
@@ -44,7 +47,7 @@ def zero_blocks(
         return
         
     pool_idx = block_indices[tid_block]
-    q[pool_idx, tid_node] = wp.vec4(0.0, 0.0, 0.0, 0.0)
+    q[pool_idx, tid_node] = q[0, 0] - q[0, 0]
 
 @wp.func
 def prolongate_block_func(
@@ -57,7 +60,7 @@ def prolongate_block_func(
     P_left: Any,       # (N1, N1)
     P_right: Any       # (N1, N1)
 ):
-    # This function computes ONE node's value (as vec4)
+    # This function computes ONE node's value (generic precision)
     N1 = P_left.shape[0] # N+1
     row = tid_node // N1
     col = tid_node % N1
@@ -66,17 +69,13 @@ def prolongate_block_func(
     use_right_col = (child_quadrant % 2 != 0)
 
     # Accumulate result vector
-    # We assume vec4 (float32).
-    res = wp.vec4(0.0, 0.0, 0.0, 0.0)
-    
-    # We can iterate components or do vector math.
-    # Vector math is better.
+    res = parent_q[0, 0] - parent_q[0, 0]
     
     for k in range(N1):
         p_row_val = P_left[row, k]
         if use_right_row: p_row_val = P_right[row, k]
             
-        inner_sum = wp.vec4(0.0, 0.0, 0.0, 0.0)
+        inner_sum = parent_q[0, 0] - parent_q[0, 0]
         for l in range(N1):
             p_col_val = P_left[col, l]
             if use_right_col: p_col_val = P_right[col, l]
@@ -130,13 +129,13 @@ def restrict_block_func(
     use_right_row = (child_quadrant >= 2)
     use_right_col = (child_quadrant % 2 != 0)
 
-    res = wp.vec4(0.0, 0.0, 0.0, 0.0)
+    res = child_q[0, 0] - child_q[0, 0]
     
     for k in range(N1):
         r_row_val = R_left[row, k]
         if use_right_row: r_row_val = R_right[row, k]
             
-        inner_sum = wp.vec4(0.0, 0.0, 0.0, 0.0)
+        inner_sum = child_q[0, 0] - child_q[0, 0]
         for l in range(N1):
             r_col_val = R_left[col, l]
             if use_right_col: r_col_val = R_right[col, l]

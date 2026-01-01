@@ -71,6 +71,39 @@ class Basis:
         # Used for Tensor-Product Flux Reconstruction update.
         # Recovers DG if using Radau correction polynomials.
         dg_L, dg_R = self._compute_correction_derivatives(nodes_1d)
+
+        # --- AMR Interpolation Matrices (1D) ---
+        # Map Parent [-1, 1] to Child Left [-1, 0] and Child Right [0, 1]
+        nodes_child_left = 0.5 * (nodes_1d - 1.0)
+        nodes_child_right = 0.5 * (nodes_1d + 1.0)
+
+        # Prolongation: Evaluate Parent Basis at Child Nodes
+        P_left = self._interpolation_matrix_1d(nodes_1d, nodes_child_left)
+        P_right = self._interpolation_matrix_1d(nodes_1d, nodes_child_right)
+
+        # Restriction: Consistent L2 Projection
+        # To ensure reversibility for polynomials of degree N, we use a consistent
+        # mass matrix instead of the lumped (diagonal) one for the projection.
+        nq_exact = self.N + 1
+        nodes_q, weights_q = self._gauss_quadrature(nq_exact)
+        Wq = np.diag(weights_q)
+        
+        # Interpolation from GLL to Gauss nodes
+        Vq = self._interpolation_matrix_1d(nodes_1d, nodes_q)
+        M_cons = Vq.T @ Wq @ Vq
+        
+        # Integration of parent basis against child basis
+        nodes_q_left = 0.5 * (nodes_q - 1.0)
+        nodes_q_right = 0.5 * (nodes_q + 1.0)
+        Vq_left = self._interpolation_matrix_1d(nodes_1d, nodes_q_left)
+        Vq_right = self._interpolation_matrix_1d(nodes_1d, nodes_q_right)
+        
+        RHS_left = 0.5 * Vq_left.T @ Wq @ Vq
+        RHS_right = 0.5 * Vq_right.T @ Wq @ Vq
+        
+        M_inv = np.linalg.inv(M_cons)
+        R_left = M_inv @ RHS_left
+        R_right = M_inv @ RHS_right
         
         # Transfer data to Warp arrays (cast to target dtype here)
         vec2_type = wp.vec2d if dtype == wp.float64 else wp.vec2
@@ -87,6 +120,11 @@ class Basis:
         
         self.dg_L = wp.array(dg_L, dtype=dtype, device=device)
         self.dg_R = wp.array(dg_R, dtype=dtype, device=device)
+
+        self.P_left = wp.array(P_left, dtype=dtype, device=device)
+        self.P_right = wp.array(P_right, dtype=dtype, device=device)
+        self.R_left = wp.array(R_left, dtype=dtype, device=device)
+        self.R_right = wp.array(R_right, dtype=dtype, device=device)
 
         # --- Over-Integration Setup (for non-linear volume terms) ---
         # Increase quadrature degree to integrate non-linear fluxes more accurately.

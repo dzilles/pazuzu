@@ -66,22 +66,31 @@ def compute_errors(solver):
         for i in range(N1):
             w_2d[j*N1 + i] = w[i] * w[j]
             
-    # Jacobian Calculation (Accounts for Domain Size and Depth)
-    level = solver.config.amr.initial_depth
-    grid_dim = 1 << level
-    
-    hx = Lx / grid_dim
-    hy = Ly / grid_dim
-    detJ = (hx / 2.0) * (hy / 2.0)
-    
     # Slice to active blocks
     num_active = solver.quadtree.num_blocks
-    diff_rho = q_num[:num_active, :, 0] - q_exact[:num_active, :, 0]
+    active = solver.state.active_block_indices.numpy()[:num_active]
+    
+    # We need to compute diff only for active blocks
+    # diff_rho shape will be (num_active, Np)
+    diff_rho = np.zeros((num_active, solver.basis.Np))
+    for b in range(num_active):
+        pool_idx = active[b]
+        diff_rho[b, :] = q_num[pool_idx, :, 0] - q_exact[pool_idx, :, 0]
     
     error_sq = 0.0
     max_err = 0.0
     
+    levels = solver.quadtree.block_levels.numpy()
+    
     for b in range(num_active):
+        # Jacobian Calculation for this specific block level
+        pool_idx = active[b]
+        level = levels[pool_idx]
+        grid_dim = 1 << level
+        hx = Lx / grid_dim
+        hy = Ly / grid_dim
+        detJ = (hx / 2.0) * (hy / 2.0)
+        
         for n in range(solver.basis.Np):
             val = diff_rho[b, n]
             error_sq += val**2 * w_2d[n] * detJ
@@ -99,6 +108,53 @@ def get_expected_error(N, level, Lx, beta=5.0):
     # Heuristic C constant for isentropic vortex
     C = 0.05 * beta 
     return C * (h**(N + 1))
+
+@pytest.mark.slow
+def test_vortex_uniform_L3_error():
+    config_path = os.path.join(os.path.dirname(__file__), "vortex_uniform_L3.yaml")
+    solver = PazuzuSolver(config_path)
+    print(f"Running simulation: {solver.config.case_name}")
+    solver.run()
+    l2, linf, diff_rho = compute_errors(solver)
+    print(f"\nFinal L2 Error:   {l2:.6e}")
+    print(f"Final Linf Error: {linf:.6e}")
+
+@pytest.mark.slow
+def test_vortex_uniform_L2_error():
+    config_path = os.path.join(os.path.dirname(__file__), "vortex_uniform_L2.yaml")
+    solver = PazuzuSolver(config_path)
+    print(f"Running simulation: {solver.config.case_name}")
+    solver.run()
+    l2, linf, diff_rho = compute_errors(solver)
+    print(f"\nFinal L2 Error:   {l2:.6e}")
+    print(f"Final Linf Error: {linf:.6e}")
+
+@pytest.mark.slow
+def test_vortex_amr_error():
+    config_path = os.path.join(os.path.dirname(__file__), "vortex_amr.yaml")
+    solver = PazuzuSolver(config_path)
+    
+    print(f"Running simulation: {solver.config.case_name}")
+    print(f"Initial Blocks: {solver.quadtree.num_blocks}")
+    
+    # Debug: Check coordinates
+    x_np = solver.state.x.numpy()[:solver.quadtree.num_blocks]
+    print(f"X range: {np.min(x_np):.2f} to {np.max(x_np):.2f}")
+    
+    # Check Error at t=0
+    l2_0, linf_0, _ = compute_errors(solver)
+    print(f"Initial L2 Error: {l2_0:.6e}")
+    
+    solver.run()
+    
+    l2, linf, diff_rho = compute_errors(solver)
+    print(f"\nFinal L2 Error:   {l2:.6e}")
+    print(f"Final Linf Error: {linf:.6e}")
+    
+    # Assert reasonable error for AMR
+    # Since it's a mix of levels, we just check if it's small (stable)
+    assert l2 < 1.0e-2
+    print("PASS: AMR Vortex test successful.")
 
 @pytest.mark.slow
 def test_vortex_l2_error():
