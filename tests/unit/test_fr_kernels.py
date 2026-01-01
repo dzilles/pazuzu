@@ -345,3 +345,46 @@ def test_fr_update_hllc(device):
     assert rho_rhs[1, 2] < -0.5
     assert rho_rhs[3, 0] < -0.5
     assert rho_rhs[3, 2] < -0.5
+
+def test_rhs_accumulation(device):
+    """
+    Verifies that compute_fr_update accumulates into RHS (rhs += update).
+    """
+    wp.init()
+    basis = Basis(polynomial_degree=1, device=device)
+    state = SimulationState(Np=basis.Np, dtype=wp.vec4, device=device, max_blocks=4)
+    quadtree = Quadtree(device=device, max_blocks=4)
+    quadtree.uniform_refine(1, state, basis)
+    
+    # 1. Manually set RHS to some value
+    rhs_init = np.ones((4, basis.Np, 4), dtype=np.float32)
+    state.rhs = wp.array(rhs_init, dtype=wp.vec4, device=device)
+    
+    # 2. Setup a Constant Flow (Update should be 0)
+    gamma = 1.4
+    q_val = np.array([1.0, 1.0, 0.0, 3.0], dtype=np.float32)
+    q_host = state.q.numpy()
+    q_host[:] = q_val
+    state.q = wp.array(q_host, dtype=wp.vec4, device=device)
+    
+    params = EquationParams32()
+    params.gamma = gamma
+    params.one = 1.0; params.half = 0.5
+    
+    # 3. Run Kernel
+    wp.launch(
+        kernel=compute_fr_update,
+        dim=quadtree.num_blocks * basis.Np,
+        inputs=[
+            state.q, state.active_block_indices, state.neighbors,
+            quadtree.num_blocks, state.rhs, basis.nodes_1d, basis.D1D,
+            basis.dg_L, basis.dg_R, quadtree.root_bounds_wp,
+            quadtree.block_levels, params, 0.0
+        ],
+        device=device
+    )
+    
+    # 4. Check that RHS is still 1.0 (Machine precision)
+    # If it was an assignment, it would be 0.0.
+    rhs_res = state.rhs.numpy()
+    assert np.allclose(rhs_res, 1.0, atol=1e-6)

@@ -175,5 +175,5 @@ def compute_fr_update(
     
     corr_y *= inv_J_y
     
-    # Total Update
-    rhs[pool_idx, node_local] = -(val_div + corr_x + corr_y)
+    # Total Update: Accumulate into RHS
+    rhs[pool_idx, node_local] += -(val_div + corr_x + corr_y)

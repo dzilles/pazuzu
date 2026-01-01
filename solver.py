@@ -185,9 +185,10 @@ class PazuzuSolver:
         """
         Callback for the Time Integrator.
         """
-        # Zero RHS? The kernel overwrites, but accumulation might be needed if multiple physics?
-        # FR Kernel overwrites.
+        # 0. Zero out RHS for accumulation
+        rhs_out.zero_()
         
+        # 1. Volume and Standard Interface Fluxes
         wp.launch(
             kernel=compute_fr_update,
             dim=self.quadtree.num_blocks * self.basis.Np,
