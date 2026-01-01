@@ -24,55 +24,47 @@ def test_hierarchy_uniqueness(device):
 
     # Action: Create a uniform Level 1 grid.
     qt.uniform_refine(level=1, state=state, basis=basis)
-    # Uniform L1 (2x2) -> 4 blocks. Codes 0, 1, 2, 3. Active indices 0,1,2,3.
+    # Uniform L1 (2x2) -> 4 blocks. Codes 4, 5, 6, 7. Active indices 0,1,2,3.
     
     # Manually force one block to Level 2
-    # Let's pick Block 0 (Code 0, Level 1).
-    # We change it to Code 0, Level 2.
-    # Note: Code 0 at L1 corresponds to (0,0).
-    # Code 0 at L2 corresponds to (0,0) at L2.
+    # Let's pick Block 0 (Code 4, Level 1).
+    # We change it to Code 16, Level 2.
+    # Code 16 corresponds to (0,0) at L2.
     # Geometrically these overlap (top-left corner of L1 block is top-left corner of L2 block).
-    # But the keys should be distinct: (0<<4)|1 vs (0<<4)|2.
     
     h_codes = qt.block_morton_codes.numpy()
     h_levels = qt.block_levels.numpy()
     
     # Modify Block 0
     h_levels[0] = 2
-    # Keep code as 0 (valid for L2 child 0 of L1 parent 0)
+    h_codes[0] = 16 # (1 << 4) | interleaved(0,0)
     
     # Upload back
     qt.block_levels = wp.array(h_levels, dtype=wp.int32, device=device)
+    qt.block_morton_codes = wp.array(h_codes, dtype=wp.int32, device=device)
     
     # Check: Rebuild connectivity
-    # This invokes populate_hash_map. If keys collide, it might overwrite or loop (if full, but map is 2x).
-    # We just want to ensure it runs and we can find both if they were active?
-    # Here only one is active (Block 0 is now L2).
-    # To truly test collision, we need two active blocks with same code but different level?
-    # That's physically impossible in a valid quadtree (overlap), but the hash map should support it as unique keys.
-    # The prompt says: "Ensure populate_hash_map does not crash or error".
-    
     try:
         qt.build_connectivity(state)
     except Exception as e:
         pytest.fail(f"build_connectivity failed with mixed levels: {e}")
 
     # Verify we can find the block
-    # Look up Block 0 (Code 0, Level 2)
+    # Look up Block 0 (Code 16, Level 2)
     # This requires manual kernel launch or inspecting the map.
     # Let's inspect the map on host.
     
     map_keys = qt.map_keys.numpy()
     map_vals = qt.map_values.numpy()
     
-    target_key = (0 << 4) | 2
+    target_key = 16
     found = False
     for k, v in zip(map_keys, map_vals):
         if k == target_key and v == 0:
             found = True
             break
     
-    assert found, "Did not find Block 0 with Level 2 key in hash map"
+    assert found, "Did not find Block 0 with code 16 in hash map"
     print("\nTest 1: Hierarchy Uniqueness Passed")
 
 
@@ -92,14 +84,14 @@ def test_hanging_node_connectivity(device):
     # Blocks: 0(BL), 1(BR), 2(TL), 3(TR) at L1.
     
     # 2. Refine Child 0 (Bottom-Left) to Level 2
-    # Block 0 is the one with Code 0.
-    # We find index of code 0.
+    # Block 0 is the one with Code 4.
     codes = qt.block_morton_codes.numpy()
     active = state.active_block_indices.numpy()[:qt.num_blocks]
     
     idx_to_refine = -1
+    code_l1_bl = morton_encode(0, 0, 1) # code 4
     for idx in active:
-        if codes[idx] == 0: # morton_encode(0,0) is 0
+        if codes[idx] == code_l1_bl:
             idx_to_refine = idx
             break
             
@@ -118,10 +110,11 @@ def test_hanging_node_connectivity(device):
     # L2 Blocks: 4 children of 0.
     
     # Find L1 Block (Bottom-Right). Code: (1,0) at L1.
-    # Encode(1,0) -> 1.
+    # Encode(1,0, 1) -> 5.
+    code_l1_br = morton_encode(1, 0, 1)
     l1_br_idx = -1
     for idx in active:
-        if levels[idx] == 1 and codes[idx] == 1:
+        if levels[idx] == 1 and codes[idx] == code_l1_br:
             l1_br_idx = idx
             break
     assert l1_br_idx != -1, "Could not find L1 Bottom-Right block"
@@ -129,10 +122,11 @@ def test_hanging_node_connectivity(device):
     # Find L2 Block (Top-Right grandchild of Bottom-Left).
     # Parent (0,0) L1.
     # L2 Coords: x=1, y=1.
-    # Encode(1,1) -> 3.
+    # Encode(1,1, 2) -> (1 << 4) | interleaved(1,1) = 16 | 3 = 19.
+    code_l2_tr = morton_encode(1, 1, 2)
     l2_tr_idx = -1
     for idx in active:
-        if levels[idx] == 2 and codes[idx] == 3:
+        if levels[idx] == 2 and codes[idx] == code_l2_tr:
             l2_tr_idx = idx
             break
     assert l2_tr_idx != -1, "Could not find L2 Top-Right block"
@@ -148,7 +142,6 @@ def test_hanging_node_connectivity(device):
     # --- Verification 2: Coarse -> Fine ---
     # Pick L1 BR block. Look Left (Face 0).
     # Should be -2 (MORTAR_FLAG) now that we implemented mark_mortar_neighbors!
-    # Wait, did I implement mark_mortar_neighbors? Yes.
     
     neighbor_left = neighbors[l1_br_idx, 0]
     assert neighbor_left == -2, \
@@ -156,11 +149,12 @@ def test_hanging_node_connectivity(device):
         
     # --- Verification 3: Same Level ---
     # L2 TR (x=1, y=1). Look Bottom (Face 2) -> (x=1, y=0).
-    # Should be L2 BR block (Code 1 at L2).
+    # Should be L2 BR block (Code 17 at L2).
     
+    code_l2_br = morton_encode(1, 0, 2) # 16 | 1 = 17
     l2_br_idx = -1
     for idx in active:
-        if levels[idx] == 2 and codes[idx] == 1:
+        if levels[idx] == 2 and codes[idx] == code_l2_br:
             l2_br_idx = idx
             break
             

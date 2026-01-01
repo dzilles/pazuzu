@@ -16,9 +16,10 @@ def part1by1(n: int) -> int:
     n = (n ^ (n << 1)) & 0x55555555
     return n
 
-def morton_encode(x: int, y: int) -> int:
-    """Interleaves bits of x and y (Z-order curve)."""
-    return part1by1(x) | (part1by1(y) << 1)
+def morton_encode(x: int, y: int, level: int) -> int:
+    """Interleaves bits of x and y and adds a sentinel bit at (1 << 2*level)."""
+    interleaved = part1by1(x) | (part1by1(y) << 1)
+    return (1 << (2 * level)) | interleaved
 
 class Quadtree:
     """
@@ -89,11 +90,10 @@ class Quadtree:
         self.num_free = self.max_blocks - num_blocks # Remaining free blocks
         
         # 1. Generate Morton Codes on Device
-        # Note: We simply take the first num_blocks indices for a uniform grid
         wp.launch(
             kernel=generate_morton_codes,
             dim=num_blocks,
-            inputs=[self.block_morton_codes, grid_dim],
+            inputs=[self.block_morton_codes, grid_dim, level],
             device=self.device
         )
         

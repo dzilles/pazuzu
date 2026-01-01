@@ -169,18 +169,26 @@ def test_quadtree_limits(device):
 def test_morton_encoding_logic(device):
     from src.geometry.quadtree import morton_encode
     
-    # (0, 0) -> 0
-    assert morton_encode(0, 0) == 0
-    # (1, 0) -> 1
-    assert morton_encode(1, 0) == 1
-    # (0, 1) -> 2
-    assert morton_encode(0, 1) == 2
-    # (1, 1) -> 3
-    assert morton_encode(1, 1) == 3
-    # (2, 2) -> (10, 10)_2. Interleave: 1100_2 = 12
-    # x=10, y=10. 
-    # part1(x) = ...00100 -> ...00000100
-    # part1(y) = ...00100 -> ...00000100
-    # y << 1 = ...00001000
-    # result = 1100 = 12. Correct.
-    assert morton_encode(2, 2) == 12
+    # (0, 0) Level 0 -> Root code = 1
+    assert morton_encode(0, 0, 0) == 1
+    
+    # (0, 0) Level 1 -> (1 << 2) | 0 = 4
+    assert morton_encode(0, 0, 1) == 4
+    # (1, 0) Level 1 -> (1 << 2) | 1 = 5
+    assert morton_encode(1, 0, 1) == 5
+    # (0, 1) Level 1 -> (1 << 2) | 2 = 6
+    assert morton_encode(0, 1, 1) == 6
+    # (1, 1) Level 1 -> (1 << 2) | 3 = 7
+    assert morton_encode(1, 1, 1) == 7
+    
+    # (2, 2) Level 2 -> (1 << 4) | interleaved(2, 2)
+    # interleaved(2, 2) = 12
+    # result = 16 | 12 = 28
+    assert morton_encode(2, 2, 2) == 28
+
+    # Verify uniqueness across levels (The original bug)
+    # Level 1 Block 2:
+    l1_c2 = morton_encode(0, 1, 1) # code 6
+    # Level 2 Block 2 of Parent 0:
+    l2_c2 = (morton_encode(0, 0, 1) << 2) | 2 # code (4 << 2) | 2 = 18
+    assert l1_c2 != l2_c2

@@ -73,19 +73,20 @@ def test_quadtree_refine_blocks(device):
     
     codes = qt.block_morton_codes.numpy()
     child_codes = [codes[idx] for idx in new_blocks]
-    assert sorted(child_codes) == [0, 1, 2, 3]
+    # Children of code 4 at L1: (4<<2) | i -> 16, 17, 18, 19
+    assert sorted(child_codes) == [16, 17, 18, 19]
     
     # 3. Check Connectivity (AMR Neighbor Lookup)
     # Let's check a child block. 
-    # Child with code 1 (x=1, y=0 at L2).
+    # Child with code 17 (x=1, y=0 at L2).
     # Its Right neighbor is x=2.
     # At L2, x=2, y=0 is part of Block 1 (Parent was x=1, y=0 at L1 -> x=2,3 at L2).
     # So neighbor is Block 1.
     
-    # Find the pool index of child 1
+    # Find the pool index of child 17
     child_1_idx = -1
     for idx in new_blocks:
-        if codes[idx] == 1:
+        if codes[idx] == 17:
             child_1_idx = idx
             break
             
@@ -98,11 +99,11 @@ def test_quadtree_refine_blocks(device):
     # Expectation: right_n should be MORTAR_FLAG (-2)
     assert right_n == -2 
     
-    # Check Child 2 (x=0, y=1 at L2) looking Top (Face 3)
+    # Check Child 18 (x=0, y=1 at L2) looking Top (Face 3)
     # Neighbor y=2. Corresponds to Block 2 (Parent x=0, y=1 at L1 -> y=2,3 at L2).
     child_2_idx = -1
     for idx in new_blocks:
-        if codes[idx] == 2:
+        if codes[idx] == 18:
             child_2_idx = idx
             break
             

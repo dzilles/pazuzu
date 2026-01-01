@@ -12,9 +12,10 @@ def part1by1(n: int):
     return n
 
 @wp.func
-def morton_encode(x: int, y: int):
-    """Interleaves bits of x and y (Z-order curve)."""
-    return part1by1(x) | (part1by1(y) << 1)
+def morton_encode(x: int, y: int, level: int):
+    """Interleaves bits of x and y and adds a sentinel bit at (1 << 2*level)."""
+    interleaved = part1by1(x) | (part1by1(y) << 1)
+    return (1 << (2 * level)) | interleaved
 
 @wp.func
 def compact1by1(n: int):
@@ -27,19 +28,22 @@ def compact1by1(n: int):
     return n
 
 @wp.func
-def morton_decode(code: int):
-    """Decodes Morton code into (x, y)."""
-    return compact1by1(code), compact1by1(code >> 1)
+def morton_decode(code: int, level: int):
+    """Decodes Morton code into (x, y) by removing the sentinel bit."""
+    mask = (1 << (2 * level)) - 1
+    interleaved = code & mask
+    return compact1by1(interleaved), compact1by1(interleaved >> 1)
 
 @wp.kernel
 def generate_morton_codes(
     codes: Any,
-    grid_dim: int
+    grid_dim: int,
+    level: int
 ):
-    tid = wp.tid()  # type: ignore # Warp returns a tuple at runtime
-    iy = tid // grid_dim  # type: ignore # Warp type inference
-    ix = tid % grid_dim  # type: ignore # Warp type inference
-    codes[tid] = morton_encode(ix, iy)  # type: ignore # Warp type inference
+    tid = wp.tid()
+    iy = tid // grid_dim
+    ix = tid % grid_dim
+    codes[tid] = morton_encode(ix, iy, level)
 
 @wp.kernel
 def compute_block_coordinates(
@@ -54,16 +58,6 @@ def compute_block_coordinates(
 ):
     """
     Computes physical coordinates for all nodes in active blocks.
-    
-    Args:
-        morton_codes: Array of Morton codes (indexed by pool_idx).
-        active_indices: Array of active block pool indices.
-        num_active: Number of active blocks.
-        block_levels: Array of refinement levels (indexed by pool_idx).
-        root_bounds: Domain boundaries.
-        nodes_2d: Reference element nodes in [-1, 1].
-        out_x: Output X coordinates (max_blocks, Np).
-        out_y: Output Y coordinates (max_blocks, Np).
     """
     tid_block, tid_node = wp.tid()
     
@@ -74,7 +68,7 @@ def compute_block_coordinates(
     code = morton_codes[pool_idx]
     level = block_levels[pool_idx]
     
-    ix, iy = morton_decode(code)
+    ix, iy = morton_decode(code, level)
     
     # Grid dimensions at this level
     grid_dim = 1 << level

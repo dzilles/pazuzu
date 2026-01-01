@@ -87,13 +87,9 @@ def populate_hash_map(
         
     pool_idx = active_indices[tid]
     code = morton_codes[pool_idx]
-    level = block_levels[pool_idx]
     
-    # Key includes level to distinguish overlapping codes at different depths
-    # (code << 4) | level. Assumes level < 16.
-    key = (code << 4) | level
-    
-    map_insert(map_keys, map_values, capacity, key, pool_idx)
+    # Morton code is now unique across levels due to sentinel bit
+    map_insert(map_keys, map_values, capacity, code, pool_idx)
 
 @wp.kernel
 def mark_mortar_neighbors(
@@ -119,7 +115,6 @@ def mark_mortar_neighbors(
     
     # Mark coarse side as mortar too
     neighbors[coarse_idx, coarse_face] = MORTAR_FLAG
-
 @wp.kernel
 def compute_neighbors(
     morton_codes: Any,
@@ -144,7 +139,7 @@ def compute_neighbors(
     code = morton_codes[pool_idx]
     level = block_levels[pool_idx]
     
-    ix, iy = morton_decode(code)
+    ix, iy = morton_decode(code, level)
     grid_dim = 1 << level
     
     # Check 4 directions
@@ -183,9 +178,8 @@ def compute_neighbors(
         
         # 1. Look for neighbor at SAME level
         if valid_n == 1:
-            code_n = morton_encode(nx, ny)
-            key_n = (code_n << 4) | level
-            n_idx = map_lookup(map_keys, map_values, map_capacity, key_n)
+            code_n = morton_encode(nx, ny, level)
+            n_idx = map_lookup(map_keys, map_values, map_capacity, code_n)
             
         # 2. If not found, look for COARSE neighbor (Parent)
         if n_idx == -1 and level > 0 and valid_n == 1:
@@ -193,9 +187,8 @@ def compute_neighbors(
             py = ny >> 1
             plevel = level - 1
             
-            pcode = morton_encode(px, py)
-            pkey = (pcode << 4) | plevel
-            n_idx = map_lookup(map_keys, map_values, map_capacity, pkey)
+            pcode = morton_encode(px, py, plevel)
+            n_idx = map_lookup(map_keys, map_values, map_capacity, pcode)
             
             if n_idx != -1:
                 # Found a Coarse Neighbor! This is a MORTAR interface.
