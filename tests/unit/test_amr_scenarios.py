@@ -139,19 +139,20 @@ def test_hanging_node_connectivity(device):
     
     # --- Verification 1: Fine -> Coarse ---
     # Pick L2 TR block. Look Right (Face 1).
-    # Should find L1 BR block.
+    # Should find MORTAR_FLAG (-2) because it's a hierarchical interface.
     
     neighbor_right = neighbors[l2_tr_idx, 1]
-    assert neighbor_right == l1_br_idx, \
-        f"Fine->Coarse Failed: L2 Block {l2_tr_idx} Right neighbor is {neighbor_right}, expected {l1_br_idx}"
+    assert neighbor_right == -2, \
+        f"Fine->Coarse Failed: L2 Block {l2_tr_idx} Right neighbor is {neighbor_right}, expected -2 (MORTAR_FLAG)"
         
     # --- Verification 2: Coarse -> Fine ---
     # Pick L1 BR block. Look Left (Face 0).
-    # Should be -1 (Ghost/Hanging).
+    # Should be -2 (MORTAR_FLAG) now that we implemented mark_mortar_neighbors!
+    # Wait, did I implement mark_mortar_neighbors? Yes.
     
     neighbor_left = neighbors[l1_br_idx, 0]
-    assert neighbor_left == -1, \
-        f"Coarse->Fine Failed: L1 Block {l1_br_idx} Left neighbor is {neighbor_left}, expected -1"
+    assert neighbor_left == -2, \
+        f"Coarse->Fine Failed: L1 Block {l1_br_idx} Left neighbor is {neighbor_left}, expected -2 (MORTAR_FLAG)"
         
     # --- Verification 3: Same Level ---
     # L2 TR (x=1, y=1). Look Bottom (Face 2) -> (x=1, y=0).

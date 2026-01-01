@@ -95,9 +95,8 @@ def test_quadtree_refine_blocks(device):
     # Face 1 is Right
     right_n = neighbors[child_1_idx, 1]
     
-    # Expectation: right_n should be index of Block 1
-    # Block 1 was index 1 in the pool (preserved).
-    assert right_n == 1 
+    # Expectation: right_n should be MORTAR_FLAG (-2)
+    assert right_n == -2 
     
     # Check Child 2 (x=0, y=1 at L2) looking Top (Face 3)
     # Neighbor y=2. Corresponds to Block 2 (Parent x=0, y=1 at L1 -> y=2,3 at L2).
@@ -108,6 +107,6 @@ def test_quadtree_refine_blocks(device):
             break
             
     top_n = neighbors[child_2_idx, 3]
-    assert top_n == 2
+    assert top_n == -2
 
     print("AMR Connectivity Test Passed!")

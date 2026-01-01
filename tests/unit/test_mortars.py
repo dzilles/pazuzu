@@ -107,22 +107,39 @@ def test_mortar_flux_kernel_execution(device):
     qt.refine_marked_blocks(state, basis, threshold=0.5)
     
     # Params
-    params = PhysicsConfig()
+    from src.kernels.structs import EquationParams32
+    params = EquationParams32()
+    params.gamma = 1.4
+    params.rho_floor = 1e-5
+    params.p_floor = 1e-5
+    params.one = 1.0
+    params.half = 0.5
+    params.mu = 0.0
+    params.prandtl = 0.72
+    params.cp = 1.0
+    params.gas_constant = 1.0
+    params.flux_type = 0 # Rusanov
     
     # Launch Kernel
+    num_mortars_host = int(qt.num_mortars.numpy()[0])
     wp.launch(
         kernel=compute_mortar_fluxes,
-        dim=qt.num_mortars.numpy()[0],
+        dim=num_mortars_host,
         inputs=[
             state.q,
             state.rhs,
             qt.mortar_list,
             qt.num_mortars,
+            basis.nodes_1d,
             basis.face_nodes,
+            basis.dg_L,
+            basis.dg_R,
             basis.P_left,
             basis.P_right,
             basis.R_left,
             basis.R_right,
+            qt.root_bounds_wp,
+            qt.block_levels,
             params
         ],
         device=device

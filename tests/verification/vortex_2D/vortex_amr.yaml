@@ -20,22 +20,22 @@ mesh:
   x_max: 5.0
   y_min: -5.0
   y_max: 5.0
-  periodic_x: false
-  periodic_y: false
+  periodic_x: true
+  periodic_y: true
 
 io:
   write_interval: 10
   output_dir: "output_amr"
 
 simulation:
-  t_final: 0.05
+  t_final: 2
   device: "cpu"
   max_steps: 1000
 
 amr:
-  max_blocks: 2000
-  initial_depth: 3
-  max_depth: 5
+  max_blocks: 2000000
+  initial_depth: 4
+  max_depth: 6
   refinement_threshold: 0.01
   refine_interval: 10
 
