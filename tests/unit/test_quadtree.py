@@ -156,10 +156,15 @@ def test_quadtree_limits(device):
     with pytest.raises(ValueError, match="MAX_BLOCKS"):
         quadtree.uniform_refine(1, state, basis)
         
-    # MAX_DEPTH is 10. Try 11.
+    # Default max_depth is 10. Try 11.
     quadtree_big = Quadtree(device=device, max_blocks=10000)
-    with pytest.raises(ValueError, match="MAX_DEPTH"):
+    with pytest.raises(ValueError, match="max_depth"):
         quadtree_big.uniform_refine(11, state, basis)
+        
+    # Custom max_depth
+    quadtree_custom = Quadtree(device=device, max_blocks=10000, max_depth=2)
+    with pytest.raises(ValueError, match="max_depth"):
+        quadtree_custom.uniform_refine(3, state, basis)
 
 def test_morton_encoding_logic(device):
     from src.geometry.quadtree import morton_encode

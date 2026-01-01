@@ -5,7 +5,6 @@ from src.kernels.grid_kernels import compute_block_coordinates, generate_morton_
 from src.kernels.connectivity_kernels import init_hash_map, populate_hash_map, compute_neighbors, mark_mortar_neighbors
 from src.kernels.amr_kernels import mark_blocks_gradient, prolongate_batch, restrict_batch, zero_blocks
 
-MAX_DEPTH = 10
 ROOT_BOUNDS = (-1.0, -1.0, 1.0, 1.0) # x_min, y_min, x_max, y_max
 
 # --- Python-side Morton Encoding Helpers ---
@@ -27,7 +26,7 @@ class Quadtree:
     
     Manages the grid hierarchy and mapping to the memory pool.
     """
-    def __init__(self, device: str = "cpu", max_blocks: int = 10000, root_bounds: Tuple[float, float, float, float] = (-1.0, -1.0, 1.0, 1.0), periodic_x: bool = False, periodic_y: bool = False, dtype=wp.float32):
+    def __init__(self, device: str = "cpu", max_blocks: int = 10000, root_bounds: Tuple[float, float, float, float] = (-1.0, -1.0, 1.0, 1.0), periodic_x: bool = False, periodic_y: bool = False, dtype=wp.float32, max_depth: int = 10):
         self.device = device
         self.max_blocks = max_blocks
         self.num_blocks = 0
@@ -35,6 +34,7 @@ class Quadtree:
         self.periodic_x = periodic_x
         self.periodic_y = periodic_y
         self.dtype = dtype
+        self.max_depth = max_depth
         
         # Morton codes for blocks resident in the pool.
         # Index i in this array corresponds to block i in SimulationState.
@@ -74,8 +74,8 @@ class Quadtree:
             state (SimulationState): The simulation state to populate.
             basis (Basis): The basis defining the nodes.
         """
-        if level > MAX_DEPTH:
-            raise ValueError(f"Level {level} exceeds MAX_DEPTH {MAX_DEPTH}")
+        if level > self.max_depth:
+            raise ValueError(f"Level {level} exceeds max_depth {self.max_depth}")
             
         print(f"Generating uniform grid at level {level}...")
         
@@ -176,7 +176,7 @@ class Quadtree:
         h_levels = self.block_levels.numpy()
         valid_blocks = []
         for idx in blocks_to_refine:
-            if h_levels[idx] < MAX_DEPTH:
+            if h_levels[idx] < self.max_depth:
                 valid_blocks.append(idx)
         
         blocks_to_refine = valid_blocks

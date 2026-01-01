@@ -65,7 +65,8 @@ class PazuzuSolver:
             root_bounds=bounds,
             periodic_x=self.config.mesh.periodic_x,
             periodic_y=self.config.mesh.periodic_y,
-            dtype=self.scalar_dtype
+            dtype=self.scalar_dtype,
+            max_depth=self.config.amr.max_depth
         )
         
         # 4. Initialize Time Integrator
