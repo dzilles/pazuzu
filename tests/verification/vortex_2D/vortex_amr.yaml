@@ -33,9 +33,9 @@ simulation:
   max_steps: 1000
 
 amr:
-  max_blocks: 2000000
-  initial_depth: 4
-  max_depth: 6
+  max_blocks: 2000
+  initial_depth: 2
+  max_depth: 3
   refinement_threshold: 0.01
   refine_interval: 10
 
