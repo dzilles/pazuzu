@@ -2,20 +2,103 @@ import warp as wp
 from typing import Any
 
 from src.kernels import utils as u
+from src.kernels.grid_kernels import morton_decode, morton_encode
+from src.kernels.connectivity_kernels import map_lookup
 
 @wp.kernel
-def mark_blocks_gradient(
-    q: Any,                 # (MAX_BLOCKS, Np) vec4
-    active_indices: Any,    # (num_active) int32
+def balance_refine_flags(
+    active_indices: Any,
     num_active: int,
-    refine_flags: Any,      # (MAX_BLOCKS) int32, Output
-    threshold: float
+    morton_codes: Any,
+    block_levels: Any,
+    map_keys: Any,
+    map_values: Any,
+    map_capacity: int,
+    periodic_x: int,
+    periodic_y: int,
+    refine_flags: Any,  # In/Out
+    changed: Any        # Out (size 1)
 ):
     tid = wp.tid()
     if tid >= num_active:
         return
         
     pool_idx = active_indices[tid]
+    if refine_flags[pool_idx] != 1:
+        return
+        
+    level = block_levels[pool_idx]
+    if level == 0:
+        return
+        
+    code = morton_codes[pool_idx]
+    ix, iy = morton_decode(code, level)
+    grid_dim = 1 << level
+    
+    # Check 4 directions: Bottom, Right, Top, Left
+    for face in range(4):
+        nx = ix
+        ny = iy
+        
+        if face == 0: ny = iy - 1
+        elif face == 1: nx = ix + 1
+        elif face == 2: ny = iy + 1
+        elif face == 3: nx = ix - 1
+        
+        # Periodic Wrap / Boundary Check
+        if nx < 0:
+            if periodic_x != 0: nx = grid_dim - 1
+            else: continue
+        elif nx >= grid_dim:
+            if periodic_x != 0: nx = 0
+            else: continue
+            
+        if ny < 0:
+            if periodic_y != 0: ny = grid_dim - 1
+            else: continue
+        elif ny >= grid_dim:
+            if periodic_y != 0: ny = 0
+            else: continue
+            
+        # If we refine level L, any level L-1 neighbor MUST also be refined
+        # to maintain 2:1 balance (otherwise we'd have L+1 next to L-1).
+        px = nx >> 1
+        py = ny >> 1
+        plevel = level - 1
+        pcode = morton_encode(px, py, plevel)
+        
+        n_idx_coarse = map_lookup(map_keys, map_values, map_capacity, pcode)
+        
+        if n_idx_coarse != -1:
+            # Found a neighbor at level L-1. 
+            # We must mark it for refinement.
+            # Refinement takes priority over coarsening/keeping.
+            old_val = wp.atomic_cas(refine_flags, n_idx_coarse, 0, 1)
+            if old_val == 0:
+                changed[0] = 1
+            elif old_val == -1:
+                # If it was marked for coarsening, we override it to 1
+                # Assignment is safe here as all concurrent writes will be '1'
+                refine_flags[n_idx_coarse] = 1
+                changed[0] = 1
+
+@wp.kernel
+def mark_blocks_gradient(
+    q: Any,                 # (MAX_BLOCKS, Np) vec4
+    active_indices: Any,    # (num_active) int32
+    num_active: int,
+    block_levels: Any,      # (MAX_BLOCKS) int32
+    refine_flags: Any,      # (MAX_BLOCKS) int32, Output
+    refine_threshold: float,
+    coarsen_threshold: float,
+    max_depth: int
+):
+    tid = wp.tid()
+    if tid >= num_active:
+        return
+        
+    pool_idx = active_indices[tid]
+    level = block_levels[pool_idx]
     
     # Compute min/max of density (component 0)
     Np = q.shape[1]
@@ -31,8 +114,10 @@ def mark_blocks_gradient(
         
     diff = rho_max - rho_min
     
-    if diff > threshold:
+    if diff > refine_threshold and level < max_depth:
         refine_flags[pool_idx] = 1
+    elif diff < coarsen_threshold:
+        refine_flags[pool_idx] = -1
     else:
         refine_flags[pool_idx] = 0
 

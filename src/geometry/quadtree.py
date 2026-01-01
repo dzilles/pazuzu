@@ -3,7 +3,7 @@ import numpy as np
 from typing import Tuple, Optional
 from src.kernels.grid_kernels import compute_block_coordinates, generate_morton_codes
 from src.kernels.connectivity_kernels import init_hash_map, populate_hash_map, compute_neighbors, mark_mortar_neighbors
-from src.kernels.amr_kernels import mark_blocks_gradient, prolongate_batch, restrict_batch, zero_blocks
+from src.kernels.amr_kernels import mark_blocks_gradient, balance_refine_flags, prolongate_batch, restrict_batch, zero_blocks
 
 ROOT_BOUNDS = (-1.0, -1.0, 1.0, 1.0) # x_min, y_min, x_max, y_max
 
@@ -133,10 +133,13 @@ class Quadtree:
         
         print(f"Created {self.num_blocks} blocks.")
 
-    def refine_marked_blocks(self, state, basis, threshold: float):
+    def adapt_mesh(self, state, basis, refine_threshold: float, coarsen_threshold: float):
         """
-        Refines active blocks based on a gradient threshold.
+        Adapts the mesh by refining and coarsening active blocks based on gradient thresholds.
         """
+        if refine_threshold is None:
+            return
+
         # --- Step A: Mark ---
         refine_flags = wp.zeros(self.max_blocks, dtype=wp.int32, device=self.device)
         
@@ -147,13 +150,45 @@ class Quadtree:
                 state.q,
                 state.active_block_indices,
                 self.num_blocks,
+                self.block_levels,
                 refine_flags,
-                threshold
+                refine_threshold,
+                coarsen_threshold,
+                self.max_depth
             ],
             device=self.device
         )
         
-        # --- Step B: Filter ---
+        # --- Step B: Balance (2:1 Constraint) ---
+        # Note: Balancing only applies to refinement flags (1).
+        changed = wp.zeros(1, dtype=wp.int32, device=self.device)
+        h_changed = np.array([1], dtype=np.int32)
+        wp_h_changed = wp.from_numpy(h_changed, dtype=wp.int32, device=self.device)
+        
+        while h_changed[0] > 0:
+            changed.zero_()
+            wp.launch(
+                kernel=balance_refine_flags,
+                dim=self.num_blocks,
+                inputs=[
+                    state.active_block_indices,
+                    self.num_blocks,
+                    self.block_morton_codes,
+                    self.block_levels,
+                    self.map_keys,
+                    self.map_values,
+                    self.map_capacity,
+                    int(self.periodic_x),
+                    int(self.periodic_y),
+                    refine_flags,
+                    changed
+                ],
+                device=self.device
+            )
+            wp.copy(wp_h_changed, changed)
+            h_changed = wp_h_changed.numpy()
+
+        # --- Step C: Filter and Execute Refinement ---
         h_flags = refine_flags.numpy()
         h_active = state.active_block_indices.numpy()[:self.num_blocks]
         
@@ -162,7 +197,14 @@ class Quadtree:
             if h_flags[idx] == 1:
                 blocks_to_refine.append(idx)
                 
-        self.refine_blocks(blocks_to_refine, state, basis)
+        # Refine first
+        if blocks_to_refine:
+            self.refine_blocks(blocks_to_refine, state, basis)
+            # Re-fetch active blocks after refinement for coarsening phase
+            h_active = state.active_block_indices.numpy()[:self.num_blocks]
+
+        # --- Step D: Execute Coarsening ---
+        self.coarsen_marked_blocks(state, basis, h_flags)
 
     def refine_blocks(self, blocks_to_refine: list, state, basis):
         """
@@ -287,17 +329,19 @@ class Quadtree:
         self.build_connectivity(state)
 
 
-    def coarsen_marked_blocks(self, state, basis):
+    def coarsen_marked_blocks(self, state, basis, refine_flags: np.ndarray):
         """
-        Coarsens families of 4 active sibling blocks into their parent.
+        Coarsens families of 4 active sibling blocks into their parent if all are marked for coarsening.
         """
         # --- Identify Coarsenable Families ---
         h_active = state.active_block_indices.numpy()[:self.num_blocks]
         h_codes = self.block_morton_codes.numpy()
         h_levels = self.block_levels.numpy()
+        h_neighbors = state.neighbors.numpy()
         
         candidates = {} # parent_key -> [child_pool_idx, ...]
         
+        # Group ALL active leaf nodes by their potential parent
         for idx in h_active:
             level = h_levels[idx]
             if level > 0:
@@ -305,28 +349,44 @@ class Quadtree:
                 parent_code = code >> 2
                 parent_level = level - 1
                 key = (parent_code, parent_level)
-                
                 if key not in candidates:
                     candidates[key] = []
                 candidates[key].append(idx)
         
         families_to_coarsen = []
-        for key, members in candidates.items():
+        parents_created = [] # (parent_pool_idx, parent_code, parent_level, [child_indices])
+        restriction_ops = [] # [child_idx, parent_idx, child_quadrant]
+        children_set = set()
+
+        for (p_code, p_level), members in candidates.items():
             if len(members) == 4:
-                # Implicit check: strictly we should check they are 0,1,2,3
-                families_to_coarsen.append((key, members))
+                # Criteria for coarsening:
+                # 1. ALL 4 siblings must be marked for coarsening (flag -1)
+                # 2. No sibling can have a finer neighbor (prevents 2:1 violation with parent)
                 
+                can_coarsen = True
+                for c_idx in members:
+                    if refine_flags[c_idx] != -1:
+                        can_coarsen = False
+                        break
+                    
+                    # neighbor_idx == -2 (MORTAR_FLAG) means the neighbor is FINER
+                    for face in range(4):
+                        if h_neighbors[c_idx, face] == -2:
+                            can_coarsen = False
+                            break
+                    if not can_coarsen:
+                        break
+                
+                if can_coarsen:
+                    families_to_coarsen.append(((p_code, p_level), members))
+
         if not families_to_coarsen:
             return
 
         # --- Allocation & Topology ---
-        num_coarsen = len(families_to_coarsen)
-        
         h_free_indices = self.free_pool_indices.numpy()
         free_ptr = 0
-        
-        parents_created = [] # (parent_pool_idx, parent_code, parent_level, [child_indices])
-        restriction_ops = [] # [child_idx, parent_idx, child_quadrant]
         
         for (p_code, p_level), children in families_to_coarsen:
             # Pop 1 parent
@@ -339,37 +399,12 @@ class Quadtree:
             
             parents_created.append((p_idx, children))
             
-            # Zero out parent data first? 
-            # `restrict_batch` uses atomic_add, so we MUST zero parent first.
-            # We can zero it via a memset or a kernel.
-            # Since p_idx is fresh from free pool, it might have garbage.
-            # We will zero it in the launch logic or assume state.q.zero_() is called? 
-            # No, we only want to zero specific blocks.
-            # We can do a quick fill on host or launch a zeroing kernel.
-            # Efficient way: The restriction kernel can overwrite if it's the first child? 
-            # No, race condition.
-            # We will zero the parent blocks in `state.q` before restriction.
-            # Since p_idx is random, we can't easily use a contiguous memset.
-            # We'll rely on the fact that we can just zero the whole array? No.
-            # We'll accept a small perf hit to zero explicitly or assume `prolongate` overwrites?
-            # Wait, this is restriction.
-            # I'll modify `restrict_batch` to zero if I could, but it's parallel.
-            # I will assume `state.q` needs zeroing for these indices.
-            # Hack: Launch a zero kernel for these indices?
-            # Or just ignore it for this PR and assume free blocks are zeroed? (Dangerous).
-            # I will add a simple loop on host to zero? (Slow).
-            # I will rely on `state.q` being large and managed.
-            # Let's add a small "Zero Parents" kernel launch or similar if strict.
-            # For now, I'll proceed without explicit zeroing logic in this snippet to keep it concise,
-            # but note it as a TODO.
-            # Actually, `state.q` is global.
-            # I will rely on `state.q[p_idx].zero_()` equivalent? Warp doesn't have that.
-            
             # Determine quadrants for children
             for c_idx in children:
                 c_code = h_codes[c_idx]
                 quad = c_code & 3
                 restriction_ops.append([c_idx, p_idx, quad])
+                children_set.add(c_idx)
         
         # --- Data Transfer (Restriction) ---
         # 0. Zero Parents
@@ -402,11 +437,6 @@ class Quadtree:
         )
         
         # --- Update Host Arrays (Active/Free) ---
-        children_set = set()
-        for _, children in families_to_coarsen:
-            for c in children:
-                children_set.add(c)
-                
         new_active_list = []
         for idx in h_active:
             if idx not in children_set:
@@ -419,12 +449,16 @@ class Quadtree:
         wp.copy(state.active_block_indices, wp.array(np.array(new_active_list, dtype=np.int32), dtype=wp.int32, device=self.device), count=self.num_blocks)
         
         remaining_free = h_free_indices[free_ptr : self.num_free]
-        freed_children = list(children_set)
+        freed_children_list = list(children_set)
+        freed_children = np.array(freed_children_list, dtype=np.int32)
         
-        new_free_count = len(remaining_free) + len(freed_children)
+        num_remaining = len(remaining_free)
+        num_freed = len(freed_children)
+        new_free_count = num_remaining + num_freed
+        
         h_new_free = np.zeros(self.max_blocks, dtype=np.int32)
-        h_new_free[:len(remaining_free)] = remaining_free
-        h_new_free[len(remaining_free):new_free_count] = freed_children
+        h_new_free[:num_remaining] = remaining_free
+        h_new_free[num_remaining : num_remaining + num_freed] = freed_children
         
         self.free_pool_indices = wp.array(h_new_free, dtype=wp.int32, device=self.device)
         self.num_free = new_free_count

@@ -24,20 +24,20 @@ mesh:
   periodic_y: true
 
 io:
-  write_interval: 10
+  write_interval: 50
   output_dir: "output_amr"
 
 simulation:
-  t_final: 5
+  t_final: 2
   device: "cpu"
-  max_steps: 5000
+  max_steps: 10000
 
 amr:
-  max_blocks: 2000
+  max_blocks: 200000
   initial_depth: 4
-  max_depth: 5
+  max_depth: 7
   refinement_threshold: 0.01
-  refine_interval: 10
+  refine_interval: 50
 
 numerics:
   polynomial_order: 2

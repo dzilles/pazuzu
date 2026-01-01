@@ -80,12 +80,15 @@ class PazuzuSolver:
         self._apply_initial_condition()
         
         # Initial Adaptation
-        if self.config.amr.refinement_threshold is not None:
-            print(f"Performing initial adaptation (threshold={self.config.amr.refinement_threshold})...")
-            self.quadtree.refine_marked_blocks(self.state, self.basis, self.config.amr.refinement_threshold)
-            # Optional: Re-apply IC to get exact values on fine nodes
-            print("Re-applying IC on refined mesh...")
-            self._apply_initial_condition()
+        refine_threshold = self.config.amr.refinement_threshold
+        if refine_threshold is not None:
+            print(f"Performing initial adaptation (threshold={refine_threshold})...")
+            # If coarsening_threshold is not specified, use a default ratio (e.g., 0.5x refine)
+            coarsen_threshold = self.config.amr.coarsening_threshold
+            if coarsen_threshold is None:
+                coarsen_threshold = refine_threshold * 0.5
+                
+            self.quadtree.adapt_mesh(self.state, self.basis, refine_threshold, coarsen_threshold)
 
         # 7. Initialize Writer
         output_dir = self.config.io.output_dir
@@ -318,9 +321,14 @@ class PazuzuSolver:
             self.state.step += 1
             
             # Dynamic AMR
-            if self.config.amr.refine_interval > 0 and self.state.step % self.config.amr.refine_interval == 0:
+            refine_interval = self.config.amr.refine_interval
+            refine_threshold = self.config.amr.refinement_threshold
+            if refine_interval > 0 and self.state.step % refine_interval == 0 and refine_threshold is not None:
                 print(f"Adapting mesh at step {self.state.step}...")
-                self.quadtree.refine_marked_blocks(self.state, self.basis, self.config.amr.refinement_threshold)
+                coarsen_threshold = self.config.amr.coarsening_threshold
+                if coarsen_threshold is None:
+                    coarsen_threshold = refine_threshold * 0.5
+                self.quadtree.adapt_mesh(self.state, self.basis, refine_threshold, coarsen_threshold)
             
             if self.state.step % log_freq == 0:
                 # NaN Check
