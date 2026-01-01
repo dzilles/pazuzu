@@ -44,8 +44,10 @@ def generate_morton_codes(
 @wp.kernel
 def compute_block_coordinates(
     morton_codes: Any,
-    level: int,
-    root_bounds: Any, # Changed from wp.array(dtype=Any) to Any
+    active_indices: Any,
+    num_active: int,
+    block_levels: Any,
+    root_bounds: Any, 
     nodes_2d: Any,
     out_x: Any,
     out_y: Any
@@ -54,23 +56,31 @@ def compute_block_coordinates(
     Computes physical coordinates for all nodes in active blocks.
     
     Args:
-        morton_codes: Array of Morton codes for active blocks.
-        level: Refinement level of the blocks (uniform grid assumption for this kernel).
+        morton_codes: Array of Morton codes (indexed by pool_idx).
+        active_indices: Array of active block pool indices.
+        num_active: Number of active blocks.
+        block_levels: Array of refinement levels (indexed by pool_idx).
         root_bounds: Domain boundaries.
         nodes_2d: Reference element nodes in [-1, 1].
-        out_x: Output X coordinates (num_blocks, Np).
-        out_y: Output Y coordinates (num_blocks, Np).
+        out_x: Output X coordinates (max_blocks, Np).
+        out_y: Output Y coordinates (max_blocks, Np).
     """
-    block_idx, node_idx = wp.tid()  # type: ignore # Warp returns a tuple at runtime
+    tid_block, tid_node = wp.tid()
     
-    code = morton_codes[block_idx]  # type: ignore # Warp type inference
+    if tid_block >= num_active:
+        return
+        
+    pool_idx = active_indices[tid_block]
+    code = morton_codes[pool_idx]
+    level = block_levels[pool_idx]
+    
     ix, iy = morton_decode(code)
     
     # Grid dimensions at this level
     grid_dim = 1 << level
     
     # Map reference node [-1, 1] to physical block
-    ref_node = nodes_2d[node_idx]  # type: ignore # Warp type inference
+    ref_node = nodes_2d[tid_node]
     r = ref_node[0]
     s = ref_node[1]
 
@@ -79,7 +89,6 @@ def compute_block_coordinates(
     domain_h = root_bounds[3] - root_bounds[1]
     
     # Block size
-    # Using r to get the correct precision for division
     f_grid_dim = bc.get_any_generic(r, grid_dim)
     dx = domain_w / f_grid_dim
     dy = domain_h / f_grid_dim
@@ -95,5 +104,5 @@ def compute_block_coordinates(
     phys_x = x0 + (r + one) * half * dx
     phys_y = y0 + (s + one) * half * dy
     
-    out_x[block_idx, node_idx] = phys_x  # type: ignore # Warp type inference
-    out_y[block_idx, node_idx] = phys_y  # type: ignore # Warp type inference
+    out_x[pool_idx, tid_node] = phys_x
+    out_y[pool_idx, tid_node] = phys_y
