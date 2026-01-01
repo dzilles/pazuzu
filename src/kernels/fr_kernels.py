@@ -88,7 +88,7 @@ def compute_fr_update(
     q_L_internal = q[pool_idx, idx_L]
     f_L_internal = euler.flux_x(q_L_internal, params)
     
-    neigh_L = neighbors[pool_idx, 0]
+    neigh_L = neighbors[pool_idx, 3] # Left is index 3
     q_L_ghost = q_L_internal # Default (Transmissive)
     if neigh_L >= 0:
         # Neighbor's Right boundary (i=N1-1)
@@ -113,7 +113,7 @@ def compute_fr_update(
     q_R_internal = q[pool_idx, idx_R]
     f_R_internal = euler.flux_x(q_R_internal, params)
     
-    neigh_R = neighbors[pool_idx, 1]
+    neigh_R = neighbors[pool_idx, 1] # Right is index 1
     q_R_ghost = q_R_internal
     if neigh_R >= 0:
         # Neighbor's Left boundary (i=0)
@@ -136,7 +136,7 @@ def compute_fr_update(
     q_B_internal = q[pool_idx, idx_B]
     g_B_internal = euler.flux_y(q_B_internal, params)
     
-    neigh_B = neighbors[pool_idx, 2]
+    neigh_B = neighbors[pool_idx, 0] # Bottom is index 0
     q_B_ghost = q_B_internal
     if neigh_B >= 0:
         # Neighbor's Top boundary (j=N1-1)
@@ -158,7 +158,7 @@ def compute_fr_update(
     q_T_internal = q[pool_idx, idx_T]
     g_T_internal = euler.flux_y(q_T_internal, params)
     
-    neigh_T = neighbors[pool_idx, 3]
+    neigh_T = neighbors[pool_idx, 2] # Top is index 2
     q_T_ghost = q_T_internal
     if neigh_T >= 0:
         # Neighbor's Bottom boundary (j=0)

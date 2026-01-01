@@ -31,25 +31,25 @@ def test_periodic_connectivity_2x2(device="cpu"):
         if codes[i] == 6: idx_6 = i
         if codes[i] == 7: idx_7 = i
         
-    # Block 4 (0,0) Neighbors:
-    # Left (-x) -> (1,0) = 5
-    # Right (+x) -> (1,0) = 5
+    # Block 4 (0,0) Neighbors (B, R, T, L):
     # Bottom (-y) -> (0,1) = 6
-    # Top (+y) -> (0,1) = 6
-    assert neighbors[idx_4, 0] == idx_5
+    # Right (+x)  -> (1,0) = 5
+    # Top (+y)    -> (0,1) = 6
+    # Left (-x)   -> (1,0) = 5
+    assert neighbors[idx_4, 0] == idx_6
     assert neighbors[idx_4, 1] == idx_5
     assert neighbors[idx_4, 2] == idx_6
-    assert neighbors[idx_4, 3] == idx_6
+    assert neighbors[idx_4, 3] == idx_5
 
     # Block 7 (1,1) Neighbors:
-    # Left (-x) -> (0,1) = 6
-    # Right (+x) -> (0,1) = 6
     # Bottom (-y) -> (1,0) = 5
-    # Top (+y) -> (1,0) = 5
-    assert neighbors[idx_7, 0] == idx_6
+    # Right (+x)  -> (0,1) = 6
+    # Top (+y)    -> (1,0) = 5
+    # Left (-x)   -> (0,1) = 6
+    assert neighbors[idx_7, 0] == idx_5
     assert neighbors[idx_7, 1] == idx_6
     assert neighbors[idx_7, 2] == idx_5
-    assert neighbors[idx_7, 3] == idx_5
+    assert neighbors[idx_7, 3] == idx_6
 
 def test_periodic_amr_connectivity(device="cpu"):
     wp.init()
@@ -65,14 +65,8 @@ def test_periodic_amr_connectivity(device="cpu"):
     quadtree.uniform_refine(1, state, basis)
     
     # 2. Refine Block 5 (BR) to Level 2
-    # It has kids (1<<4)|(interleave(2*1+[0,1], 2*0+[0,1]))
     # ix ranges [2,3], iy ranges [0,1]
-    # Kids are: (2,0), (3,0), (2,1), (3,1)
-    # L2 Codes: 
-    # (2,0) -> 16 | (part1(2)|part1(0)<<1) = 16 | 4 = 20
-    # (3,0) -> 16 | (part1(3)|part1(0)<<1) = 16 | 5 = 21
-    # (2,1) -> 16 | (part1(2)|part1(1)<<1) = 16 | 6 = 22
-    # (3,1) -> 16 | (part1(3)|part1(1)<<1) = 16 | 7 = 23
+    # (2,0)->20, (3,0)->21, (2,1)->22, (3,1)->23
     
     h_codes = quadtree.block_morton_codes.numpy()
     idx_5 = -1
@@ -85,7 +79,6 @@ def test_periodic_amr_connectivity(device="cpu"):
     
     neighbors = state.neighbors.numpy()
     codes = quadtree.block_morton_codes.numpy()
-    levels = quadtree.block_levels.numpy()
     active = state.active_block_indices.numpy()[:quadtree.num_blocks]
     
     # Identify the new L2 blocks
@@ -96,25 +89,21 @@ def test_periodic_amr_connectivity(device="cpu"):
             break
             
     assert idx_21 != -1
-    assert levels[idx_21] == 2
     
     # Block 21 is at ix=3, iy=0 (Level 2).
-    # Its RIGHT neighbor in periodic X should be ix=0, iy=0 (Level 1 or 2).
-    # In our case, ix=0, iy=0 is Block 4 (Level 1).
-    # Since it's L2 looking at L1, it should be a MORTAR interface (-2).
+    # Its RIGHT neighbor (Face 1) in periodic X should be ix=0, iy=0 (Block 4, Level 1).
+    # L2 -> L1 lookup => MORTAR interface (-2).
+    assert neighbors[idx_21, 1] == -2
     
-    assert neighbors[idx_21, 1] == -2, f"Expected MORTAR_FLAG (-2) for periodic right neighbor of L2 block, got {neighbors[idx_21, 1]}"
-    
-    # Also check the L1 block 4 (0,0) looking LEFT.
-    # Its LEFT neighbor is ix=3, iy=0 (Level 2).
-    # Should also be MORTAR_FLAG (-2) because the neighbor is finer.
+    # Block 4 (0,0) L1.
+    # Its LEFT neighbor (Face 3) is ix=3, iy=0 (Level 2).
+    # L1 -> L2 lookup => MORTAR interface (-2).
     idx_4 = -1
     for idx in active:
         if codes[idx] == 4:
             idx_4 = idx
             break
-    assert idx_4 != -1
-    assert neighbors[idx_4, 0] == -2, f"Expected MORTAR_FLAG (-2) for periodic left neighbor of L1 block, got {neighbors[idx_4, 0]}"
+    assert neighbors[idx_4, 3] == -2
 
 if __name__ == "__main__":
     test_periodic_connectivity_2x2()

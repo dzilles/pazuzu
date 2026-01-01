@@ -49,31 +49,26 @@ def compute_mortar_fluxes(
     two_s = one_s + one_s
     
     # Normal and Opposing Face
-    # We use POSITIVE normals for consistent jump logic matching dg_L/dg_R
-    coarse_face = 0
-    if face == 0: # Fine Left
-        coarse_face = 1 # Coarse Right
-    elif face == 1: # Fine Right
-        coarse_face = 0 # Coarse Left
-    elif face == 2: # Fine Bottom
-        coarse_face = 3 # Coarse Top
-    elif face == 3: # Fine Top
-        coarse_face = 2 # Coarse Bottom
+    # Opposing face in B-R-T-L ordering: 0<->2 (B<->T), 1<->3 (R<->L)
+    coarse_face = (face + 2) % 4
         
     # Jacobians
     level_f = block_levels[fine_idx]
     dim_f = 1 << level_f
     dx_f = domain_w / u.get_any_generic(zero_s, dim_f)
     dy_f = domain_h / u.get_any_generic(zero_s, dim_f)
-    inv_J_f = two_s / dx_f
-    if face >= 2: inv_J_f = two_s / dy_f
+    
+    # Selection of coordinate spacing based on interface normal
+    # Face 0,2 are Y-interfaces (Normal=(0,1)), Face 1,3 are X-interfaces (Normal=(1,0))
+    inv_J_f = two_s / dy_f
+    if face == 1 or face == 3: inv_J_f = two_s / dx_f
     
     level_c = block_levels[coarse_idx]
     dim_c = 1 << level_c
     dx_c = domain_w / u.get_any_generic(zero_s, dim_c)
     dy_c = domain_h / u.get_any_generic(zero_s, dim_c)
-    inv_J_c = two_s / dx_c
-    if face >= 2: inv_J_c = two_s / dy_c
+    inv_J_c = two_s / dy_c
+    if face == 1 or face == 3: inv_J_c = two_s / dx_c
 
     # 3. Compute Interface Fluxes (F*)
     # All fluxes along POSITIVE x or y
@@ -83,8 +78,8 @@ def compute_mortar_fluxes(
         
         # Internal flux component along POSITIVE axis
         f_int_f = zero_v
-        if face < 2: f_int_f = euler.flux_x(q_f, params)
-        else:        f_int_f = euler.flux_y(q_f, params)
+        if face == 1 or face == 3: f_int_f = euler.flux_x(q_f, params)
+        else:                      f_int_f = euler.flux_y(q_f, params)
         
         # Projected Coarse state
         q_c_proj = zero_v
@@ -97,35 +92,36 @@ def compute_mortar_fluxes(
         # Numerical Flux (F*) along POSITIVE axis
         # Use (1,0) or (0,1)
         F_star = zero_v
-        if face < 2: 
-            if face == 0: # Fine is R, Coarse is L
-                F_star = rusanov_flux(q_c_proj, q_f, one_s, zero_s, params)
-            else: # Fine is L, Coarse is R
+        if face == 1 or face == 3: 
+            if face == 3: # Fine is Left, Coarse is Right
                 F_star = rusanov_flux(q_f, q_c_proj, one_s, zero_s, params)
+            else: # Fine is Right, Coarse is Left
+                F_star = rusanov_flux(q_c_proj, q_f, one_s, zero_s, params)
         else:
-            if face == 2: # Fine is R, Coarse is L
-                F_star = rusanov_flux(q_c_proj, q_f, zero_s, one_s, params)
-            else: # Fine is L, Coarse is R
+            if face == 0: # Fine is Bottom, Coarse is Top
                 F_star = rusanov_flux(q_f, q_c_proj, zero_s, one_s, params)
+            else: # Fine is Top, Coarse is Bottom
+                F_star = rusanov_flux(q_c_proj, q_f, zero_s, one_s, params)
         
         # 4. Apply Correction to Fine Block (Volume)
         # jump = F*_pos - f_int_pos
         jump_f = F_star - f_int_f
         
-        dg_val_f = dg_L
-        if (face == 1) or (face == 3): dg_val_f = dg_R
+        dg_val_f = dg_L # Default for faces 0 and 3 (-y and -x)
+        if (face == 1) or (face == 2): dg_val_f = dg_R # Faces 1 and 2 (+x and +y)
         
         for ii in range(N1):
             xi_idx = ii
-            if face < 2: node_idx = k * N1 + ii
-            else:        node_idx = ii * N1 + k
+            # For Face 1,3 (X), correction varies in i. For Face 0,2 (Y), correction varies in j.
+            if face == 1 or face == 3: node_idx = k * N1 + ii
+            else:                      node_idx = ii * N1 + k
             
             w_corr = dg_val_f[xi_idx]
             wp.atomic_add(rhs, fine_idx, node_idx, -jump_f * w_corr * inv_J_f)
             
         # 5. Apply Correction to Coarse Block (Volume)
         dg_val_c = dg_L
-        if (coarse_face == 1) or (coarse_face == 3): dg_val_c = dg_R
+        if (coarse_face == 1) or (coarse_face == 2): dg_val_c = dg_R
         
         for m in range(N1):
             weight_r = R_left[m, k]
@@ -135,8 +131,8 @@ def compute_mortar_fluxes(
             
             for ii in range(N1):
                 xi_idx_c = ii
-                if coarse_face < 2: node_idx_c = m * N1 + ii
-                else:               node_idx_c = ii * N1 + m
+                if coarse_face == 1 or coarse_face == 3: node_idx_c = m * N1 + ii
+                else:                                    node_idx_c = ii * N1 + m
                 
                 w_corr_c = dg_val_c[xi_idx_c]
                 # RHS_c -= F_star part
@@ -144,21 +140,21 @@ def compute_mortar_fluxes(
                 
     # 6. Finalize Coarse Internal Correction
     dg_val_c = dg_L
-    if (coarse_face == 1) or (coarse_face == 3): dg_val_c = dg_R
+    if (coarse_face == 1) or (coarse_face == 2): dg_val_c = dg_R
 
     for m in range(N1):
         idx_c_m = face_nodes[coarse_face, m]
         q_c_m = q[coarse_idx, idx_c_m]
         
         f_int_c_m = zero_v
-        if face < 2: f_int_c_m = euler.flux_x(q_c_m, params)
-        else:        f_int_c_m = euler.flux_y(q_c_m, params)
+        if face == 1 or face == 3: f_int_c_m = euler.flux_x(q_c_m, params)
+        else:                      f_int_c_m = euler.flux_y(q_c_m, params)
         
         for ii in range(N1):
             xi_idx_c = ii
-            if coarse_face < 2: node_idx_c = m * N1 + ii
-            else:               node_idx_c = ii * N1 + m
+            if coarse_face == 1 or coarse_face == 3: node_idx_c = m * N1 + ii
+            else:                                    node_idx_c = ii * N1 + m
             
             w_corr_c = dg_val_c[xi_idx_c]
-            # RHS_c += f_int_c part
+            # RHS_c += f_int_c part (weight 0.5 because coarse covers 2 fine blocks)
             wp.atomic_add(rhs, coarse_idx, node_idx_c, f_int_c_m * half_s * w_corr_c * inv_J_c)

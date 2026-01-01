@@ -80,35 +80,37 @@ def test_quadtree_connectivity(device):
     quadtree = Quadtree(device=device, max_blocks=max_blocks)
     
     # 2x2 Grid (Level 1)
-    # BL=0, BR=1, TL=2, TR=3 (Morton)
-    # BL (0,0) -> Neighbors: L=-1, R=1, B=-1, T=2
-    # BR (1,0) -> Neighbors: L=0, R=-1, B=-1, T=3
-    # TL (0,1) -> Neighbors: L=-1, R=3, B=0, T=-1
-    # TR (1,1) -> Neighbors: L=2, R=-1, B=1, T=-1
+    # BL=4, BR=5, TL=6, TR=7 (New Morton codes)
+    # (ix, iy): (0,0)=4, (1,0)=5, (0,1)=6, (1,1)=7
+    # BL (0,0) -> Neighbors: B=-1, R=5, T=6, L=-1
+    # BR (1,0) -> Neighbors: B=-1, R=-1, T=7, L=4
+    # TL (0,1) -> Neighbors: B=4, R=7, T=-1, L=-1
+    # TR (1,1) -> Neighbors: B=5, R=-1, T=-1, L=6
     
     quadtree.uniform_refine(1, state, basis)
     
     neighbors = state.neighbors.numpy()
+    codes = quadtree.block_morton_codes.numpy()
     
-    # Check Block 0 (BL)
-    # 0:Left, 1:Right, 2:Bottom, 3:Top
-    # Neighbors stores POOL INDICES. Since we filled sequentially:
-    # Pool 0 = Morton 0 (BL)
-    # Pool 1 = Morton 1 (BR)
-    # Pool 2 = Morton 2 (TL)
-    # Pool 3 = Morton 3 (TR)
+    # Identify pool indices
+    idx_4 = -1; idx_5 = -1; idx_6 = -1; idx_7 = -1
+    for i in range(4):
+        if codes[i] == 4: idx_4 = i
+        if codes[i] == 5: idx_5 = i
+        if codes[i] == 6: idx_6 = i
+        if codes[i] == 7: idx_7 = i
     
-    # Block 0 Neighbors
-    assert neighbors[0, 0] == -1 # Left
-    assert neighbors[0, 1] == 1  # Right (BR)
-    assert neighbors[0, 2] == -1 # Bottom
-    assert neighbors[0, 3] == 2  # Top (TL)
+    # Block 4 Neighbors (0:Bottom, 1:Right, 2:Top, 3:Left)
+    assert neighbors[idx_4, 0] == -1    # Bottom
+    assert neighbors[idx_4, 1] == idx_5 # Right (BR)
+    assert neighbors[idx_4, 2] == idx_6 # Top (TL)
+    assert neighbors[idx_4, 3] == -1    # Left
     
-    # Block 3 Neighbors (TR)
-    assert neighbors[3, 0] == 2  # Left (TL)
-    assert neighbors[3, 1] == -1 # Right
-    assert neighbors[3, 2] == 1  # Bottom (BR)
-    assert neighbors[3, 3] == -1 # Top
+    # Block 7 Neighbors (TR)
+    assert neighbors[idx_7, 0] == idx_5 # Bottom (BR)
+    assert neighbors[idx_7, 1] == -1    # Right
+    assert neighbors[idx_7, 2] == -1    # Top
+    assert neighbors[idx_7, 3] == idx_6 # Left (TL)
 
 def test_quadtree_connectivity_level2(device):
     """Test connectivity for a Level 2 (4x4 = 16 blocks) grid with internal blocks."""
@@ -122,27 +124,35 @@ def test_quadtree_connectivity_level2(device):
     quadtree.uniform_refine(2, state, basis)
     
     neighbors = state.neighbors.numpy()
+    codes = quadtree.block_morton_codes.numpy()
     
+    # Helper to find pool index by (ix, iy) at level 2
+    from src.geometry.quadtree import morton_encode
+    def get_idx(ix, iy):
+        code = morton_encode(ix, iy, 2)
+        for i in range(16):
+            if codes[i] == code: return i
+        return -1
+
     # Let's check an internal block at (ix=1, iy=1)
-    # Pool index = iy * grid_dim + ix = 1 * 4 + 1 = 5
-    # Neighbors (Pool Indices):
-    # Left: (0, 1)   -> index 4
-    # Right: (2, 1)  -> index 6
-    # Bottom: (1, 0) -> index 1
-    # Top: (1, 2)    -> index 9
+    idx_internal = get_idx(1, 1)
+    # Neighbors (B, R, T, L):
+    # Bottom: (1, 0)
+    # Right: (2, 1)
+    # Top: (1, 2)
+    # Left: (0, 1)
     
-    idx_internal = 5
-    assert neighbors[idx_internal, 0] == 4 # Left
-    assert neighbors[idx_internal, 1] == 6 # Right
-    assert neighbors[idx_internal, 2] == 1 # Bottom
-    assert neighbors[idx_internal, 3] == 9 # Top
+    assert neighbors[idx_internal, 0] == get_idx(1, 0)
+    assert neighbors[idx_internal, 1] == get_idx(2, 1)
+    assert neighbors[idx_internal, 2] == get_idx(1, 2)
+    assert neighbors[idx_internal, 3] == get_idx(0, 1)
     
-    # Let's check a corner block (3, 3) -> index 15
-    idx_corner = 15
-    assert neighbors[idx_corner, 0] == 14 # Left (2, 3)
-    assert neighbors[idx_corner, 1] == -1 # Right
-    assert neighbors[idx_corner, 2] == 11 # Bottom (3, 2)
-    assert neighbors[idx_corner, 3] == -1 # Top
+    # Let's check a corner block (3, 3)
+    idx_corner = get_idx(3, 3)
+    assert neighbors[idx_corner, 0] == get_idx(3, 2) # Bottom
+    assert neighbors[idx_corner, 1] == -1            # Right
+    assert neighbors[idx_corner, 2] == -1            # Top
+    assert neighbors[idx_corner, 3] == get_idx(2, 3) # Left
 
 def test_quadtree_limits(device):
     """Test error handling for Quadtree limits."""
