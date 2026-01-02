@@ -36,7 +36,8 @@ amr:
   max_blocks: 200000
   initial_depth: 4
   max_depth: 7
-  refinement_threshold: 0.01
+  refinement_threshold: 0.03
+  coarsening_threshold: 0.015
   refine_interval: 50
 
 numerics:
