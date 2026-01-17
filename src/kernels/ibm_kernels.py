@@ -1,6 +1,7 @@
 import warp as wp
 from src.kernels.grid_kernels import morton_encode
 from src.kernels.connectivity_kernels import map_lookup
+from typing import Any
 
 @wp.kernel
 def generate_sdf_cylinder(
@@ -88,7 +89,8 @@ def sample_state_at_point(
     x: wp.array(dtype=float, ndim=2),
     y: wp.array(dtype=float, ndim=2),
     nodes_1d: wp.array(dtype=float),
-    N1: int # Number of nodes in 1D (N+1)
+    N1: int,
+    params: Any # Added params for safe fallback
 ):
     """
     Interpolates the state q at point (x_p, y_p) within the block specified by pool_idx.
@@ -182,7 +184,6 @@ def sample_state_at_point(
     phi11 = phi[pool_idx, node_11]
     
     # Compute Validity Masks (1.0 if fluid/interface, 0.0 if solid)
-    # Epsilon for robust float comparison
     epsilon = 1e-6
     m00 = wp.where(phi00 > -epsilon, 1.0, 0.0)
     m10 = wp.where(phi10 > -epsilon, 1.0, 0.0)
@@ -198,19 +199,25 @@ def sample_state_at_point(
     # Renormalize
     w_total = ew00 + ew10 + ew01 + ew11
     
-    # Fallback: If all neighbors are solid (w_total ~ 0), we must return something.
-    # In a ghost-cell method, this implies the image point is deeply buried.
-    # We fallback to standard bilinear (using all nodes) to avoid NaNs, 
-    # though the value might be non-physical.
-    
     q_final = wp.vec4(0.0, 0.0, 0.0, 0.0)
     
+    # --- FIXED FALLBACK LOGIC ---
     if w_total > 1e-6:
         inv_w = 1.0 / w_total
         q_final = (q00 * ew00 + q10 * ew10 + q01 * ew01 + q11 * ew11) * inv_w
     else:
-        # Fallback to standard bilinear (includes solid nodes)
-        q_final = q00 * w00 + q10 * w10 + q01 * w01 + q11 * w11
+        # CRITICAL FIX: Do NOT use solid nodes.
+        # Fallback to Freestream (Safe State) to break feedback loop.
+        rho_inf = params.rho_inf
+        u_inf = params.u_inf
+        v_inf = params.v_inf
+        p_inf = params.p_inf
+        gamma = params.gamma
+        
+        v2 = u_inf*u_inf + v_inf*v_inf
+        E_inf = p_inf / (gamma - 1.0) + 0.5 * rho_inf * v2
+        
+        q_final = wp.vec4(rho_inf, rho_inf * u_inf, rho_inf * v_inf, E_inf)
             
     return q_final
 
@@ -240,7 +247,6 @@ def find_block_id(
     dy = domain_h / float(grid_dim)
     
     # Calculate integer coordinates
-    # We add a small epsilon to handle boundary cases
     ix = int((x - x_min) / dx)
     iy = int((y - y_min) / dy)
     
@@ -254,41 +260,34 @@ def find_block_id(
 
 @wp.kernel
 def apply_ibm_forcing(
-    q: wp.array(dtype=wp.vec4, ndim=2),       # (max_blocks, Np)
-    x: wp.array(dtype=float, ndim=2),         # (max_blocks, Np)
-    y: wp.array(dtype=float, ndim=2),         # (max_blocks, Np)
-    phi: wp.array(dtype=float, ndim=2),       # (max_blocks, Np)
-    active_block_indices: wp.array(dtype=int),# (num_active_blocks)
+    q: wp.array(dtype=wp.vec4, ndim=2),
+    x: wp.array(dtype=float, ndim=2),
+    y: wp.array(dtype=float, ndim=2),
+    phi: wp.array(dtype=float, ndim=2),
+    active_block_indices: wp.array(dtype=int),
     mesh_id: wp.uint64,
-    nodes_1d: wp.array(dtype=float),          # (N1)
+    nodes_1d: wp.array(dtype=float),
     N1: int,
-    cutoff_dist: float,                        # e.g., 2.0 * dx_min
-    # New Arguments
+    cutoff_dist: float,
     map_keys: wp.array(dtype=int),
     map_values: wp.array(dtype=int),
     map_capacity: int,
     root_bounds: wp.vec4,
     block_levels: wp.array(dtype=int),
     invert: int,
-    boundary_type_id: int # 0: Slip, 1: No-Slip
+    boundary_type_id: int,
+    params: Any # NEW: Passed from Solver
 ):
     """
     Applies Ghost-Cell forcing for IBM.
     Reflects the state at 'image point' to the 'ghost node' (solid).
     """
     block_id, node_id = wp.tid()
-    
-    # Map to global pool index
     pool_idx = active_block_indices[block_id]
     
-    # 1. Check Ghost Node Condition
-    # Node is Solid (phi < 0)
     phi_val = phi[pool_idx, node_id]
     
-    # Force ALL solid nodes to prevent polynomial ringing
     if phi_val < 0.0:
-        
-        # 2. Geometry Query
         px = x[pool_idx, node_id]
         py = y[pool_idx, node_id]
         p_vec = wp.vec3(px, py, 0.0)
@@ -298,20 +297,15 @@ def apply_ibm_forcing(
         face_v = float(0.0)
         sign = float(0.0)
         
-        # Use the cutoff_dist passed from solver (which should be large)
         if wp.mesh_query_point_sign_normal(mesh_id, p_vec, cutoff_dist, sign, face_index, face_u, face_v):
-            
             p_surf = wp.mesh_eval_position(mesh_id, face_index, face_u, face_v)
             n_surf = wp.mesh_eval_face_normal(mesh_id, face_index)
             
-            # Distance d = |p - p_surf|
             diff = p_vec - p_surf
             d = wp.length(diff)
             
-            # Normalize normal
             nx = n_surf[0]
             ny = n_surf[1]
-            
             if invert == 1:
                 nx = -nx
                 ny = -ny
@@ -320,22 +314,18 @@ def apply_ibm_forcing(
             nx *= inv_len
             ny *= inv_len
             
-            # 3. Image Point
             x_img = px + 2.0 * d * nx
             y_img = py + 2.0 * d * ny
             
-            # 4. Lookup Block ID for Image Point
             current_level = block_levels[pool_idx]
             target_block_idx = find_block_id(x_img, y_img, current_level, map_keys, map_values, map_capacity, root_bounds)
             
-            # Fallback to current block if not found
             if target_block_idx == -1:
                 target_block_idx = pool_idx
             
-            # 5. Interpolate State at Image Point
-            q_img = sample_state_at_point(target_block_idx, x_img, y_img, q, phi, x, y, nodes_1d, N1)
+            # Use SAFE sampling with params
+            q_img = sample_state_at_point(target_block_idx, x_img, y_img, q, phi, x, y, nodes_1d, N1, params)
             
-            # 6. Apply Boundary Condition (Slip Wall)
             rho_img = q_img[0]
             rhou_img = q_img[1]
             rhov_img = q_img[2]
@@ -344,30 +334,17 @@ def apply_ibm_forcing(
             u_img = rhou_img / rho_img
             v_img = rhov_img / rho_img
             
-            # Velocity Reflection
             if boundary_type_id == 1: # No-Slip
-                # V_ghost = -V_image
                 u_ghost = -u_img
                 v_ghost = -v_img
-            else: # Slip (Default)
+            else: # Slip
                 v_dot_n = u_img * nx + v_img * ny
                 vn_x = v_dot_n * nx
                 vn_y = v_dot_n * ny
-                
                 vt_x = u_img - vn_x
                 vt_y = v_img - vn_y
-                
-                # V_ghost = Vt - Vn
                 u_ghost = vt_x - vn_x
                 v_ghost = vt_y - vn_y
             
-            # Construct Ghost State
-            q_ghost = wp.vec4(
-                rho_img,
-                rho_img * u_ghost,
-                rho_img * v_ghost,
-                E_img
-            )
-            
-            # 7. Write Back
+            q_ghost = wp.vec4(rho_img, rho_img * u_ghost, rho_img * v_ghost, E_img)
             q[pool_idx, node_id] = q_ghost

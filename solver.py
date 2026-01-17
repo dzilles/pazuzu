@@ -404,7 +404,7 @@ class PazuzuSolver:
                 self.state.y,
                 self.state.phi,
                 self.state.active_block_indices,
-                self.ibm.mesh.id,
+                wp.uint64(self.ibm.mesh.id),
                 self.basis.nodes_1d,
                 self.basis.N1,
                 self.scalar_dtype(cutoff),
@@ -415,7 +415,8 @@ class PazuzuSolver:
                 self.quadtree.root_bounds_wp,
                 self.quadtree.block_levels,
                 invert_flag,
-                boundary_type_id
+                boundary_type_id,
+                self.params  # NEW: Pass params struct
             ],
             device=self.device
         )
