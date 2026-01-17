@@ -90,7 +90,7 @@ def sample_state_at_point(
     y: wp.array(dtype=float, ndim=2),
     nodes_1d: wp.array(dtype=float),
     N1: int,
-    params: Any # Added params for safe fallback
+    params: Any
 ):
     """
     Interpolates the state q at point (x_p, y_p) within the block specified by pool_idx.
@@ -183,12 +183,15 @@ def sample_state_at_point(
     phi01 = phi[pool_idx, node_01]
     phi11 = phi[pool_idx, node_11]
     
-    # Compute Validity Masks (1.0 if fluid/interface, 0.0 if solid)
-    epsilon = 1e-6
-    m00 = wp.where(phi00 > -epsilon, 1.0, 0.0)
-    m10 = wp.where(phi10 > -epsilon, 1.0, 0.0)
-    m01 = wp.where(phi01 > -epsilon, 1.0, 0.0)
-    m11 = wp.where(phi11 > -epsilon, 1.0, 0.0)
+    # --- STRICT MASKING to Break Feedback Loop ---
+    # Nodes with phi <= 0.0 are FORCED. We must NOT use them.
+    # We use a positive epsilon to be safe.
+    safe_epsilon = 1e-9
+    
+    m00 = wp.where(phi00 > safe_epsilon, 1.0, 0.0)
+    m10 = wp.where(phi10 > safe_epsilon, 1.0, 0.0)
+    m01 = wp.where(phi01 > safe_epsilon, 1.0, 0.0)
+    m11 = wp.where(phi11 > safe_epsilon, 1.0, 0.0)
     
     # Effective Weights
     ew00 = w00 * m00
@@ -201,13 +204,12 @@ def sample_state_at_point(
     
     q_final = wp.vec4(0.0, 0.0, 0.0, 0.0)
     
-    # --- FIXED FALLBACK LOGIC ---
-    if w_total > 1e-6:
+    # --- SAFE FALLBACK ---
+    if w_total > 1e-9:
         inv_w = 1.0 / w_total
         q_final = (q00 * ew00 + q10 * ew10 + q01 * ew01 + q11 * ew11) * inv_w
     else:
-        # CRITICAL FIX: Do NOT use solid nodes.
-        # Fallback to Freestream (Safe State) to break feedback loop.
+        # Fallback to Freestream (Dirichlet Anchor)
         rho_inf = params.rho_inf
         u_inf = params.u_inf
         v_inf = params.v_inf
@@ -276,7 +278,7 @@ def apply_ibm_forcing(
     block_levels: wp.array(dtype=int),
     invert: int,
     boundary_type_id: int,
-    params: Any # NEW: Passed from Solver
+    params: Any
 ):
     """
     Applies Ghost-Cell forcing for IBM.
@@ -287,6 +289,7 @@ def apply_ibm_forcing(
     
     phi_val = phi[pool_idx, node_id]
     
+    # Only force nodes that are strictly solid/interface
     if phi_val < 0.0:
         px = x[pool_idx, node_id]
         py = y[pool_idx, node_id]
@@ -323,7 +326,7 @@ def apply_ibm_forcing(
             if target_block_idx == -1:
                 target_block_idx = pool_idx
             
-            # Use SAFE sampling with params
+            # Interpolate
             q_img = sample_state_at_point(target_block_idx, x_img, y_img, q, phi, x, y, nodes_1d, N1, params)
             
             rho_img = q_img[0]
