@@ -1,4 +1,4 @@
-case_name: "Isentropic Vortex Convergence Study"
+case_name: "Isentropic Vortex Default"
 solver_type: "euler_2d"
 
 physics:
@@ -16,6 +16,7 @@ initial_condition:
     radius: 1.0
 
 mesh:
+  initial_depth: 4
   x_min: -5.0
   x_max: 5.0
   y_min: -5.0
@@ -24,20 +25,25 @@ mesh:
   periodic_y: true
 
 io:
-  write_interval: 10000
-  output_dir: "output"
+  write_interval: 1000
+  output_dir: "output/vortex_default"
 
 simulation:
-  t_final: 0.1
-  device: "cpu"
-  max_steps: 100000
+  t_final: 1.0
+  device: "cuda"
+  max_steps: 10000
 
 amr:
   max_blocks: 10000
-  initial_depth: 3
+  max_depth: 4
+  refinement_threshold: 100.0
+  coarsening_threshold: -1.0
+  refine_interval: 1000
 
 numerics:
   polynomial_order: 2
   precision: "double"
-  cfl: 0.05
+  cfl: 0.1
   dt_min: 1.0e-14
+  flux: "rusanov"
+  time_integrator: "rk4"

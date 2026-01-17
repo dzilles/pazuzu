@@ -10,9 +10,9 @@ MORTAR_FLAG = -2
 def hash_int(k: int):
     # MurmurHash3 integer finalizer
     k ^= k >> 16
-    k *= 0x85ebca6b
+    k *= wp.int32(0x85ebca6b)
     k ^= k >> 13
-    k *= 0xc2b2ae35
+    k *= wp.int32(0xc2b2ae35)
     k ^= k >> 16
     return k
 
@@ -230,30 +230,26 @@ def compute_neighbors(
         valid_n = 1
 
         if nx < 0:
-
-            if periodic_x != 0: nx = grid_dim - 1
-
-            else: valid_n = 0
-
+            if periodic_x != 0:
+                nx = grid_dim - 1
+            else:
+                valid_n = 0
         elif nx >= grid_dim:
-
-            if periodic_x != 0: nx = 0
-
-            else: valid_n = 0
-
+            if periodic_x != 0:
+                nx = 0
+            else:
+                valid_n = 0
             
-
         if ny < 0:
-
-            if periodic_y != 0: ny = grid_dim - 1
-
-            else: valid_n = 0
-
+            if periodic_y != 0:
+                ny = grid_dim - 1
+            else:
+                valid_n = 0
         elif ny >= grid_dim:
-
-            if periodic_y != 0: ny = 0
-
-            else: valid_n = 0
+            if periodic_y != 0:
+                ny = 0
+            else:
+                valid_n = 0
 
             
 

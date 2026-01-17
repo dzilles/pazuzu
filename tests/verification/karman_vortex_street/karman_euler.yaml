@@ -1,0 +1,72 @@
+case_name: "karman_euler"
+solver_type: "euler_2d"
+
+mesh:
+  initial_depth: 6
+  x_min: -5.0
+  x_max: 15.0
+  y_min: -5.0
+  y_max: 5.0
+  periodic_x: false
+  periodic_y: false
+
+boundaries:
+  left:
+    type: "inlet"
+    params:
+      rho: 1.0
+      u: 1.0
+      v: 0.0
+      p: 1.0
+  right:
+    type: "outlet"
+    params:
+      p_back: 1.0
+  top:
+    type: "slip_wall"
+  bottom:
+    type: "slip_wall"
+
+amr:
+  enabled: false
+  max_depth: 7
+  max_blocks: 20000
+  refinement_threshold: 0.1
+  coarsening_threshold: 0.05
+  refine_interval: 10
+
+ibm:
+  enabled: true
+  mode: "stl_file"
+  stl_path: "tests/verification/karman_vortex_street/cylinder.stl"
+  invert_inside_outside: false
+  geometric_params: {}
+
+physics:
+  rho_inf: 1.0
+  u_inf: 0.0
+  v_inf: 0.0
+  p_inf: 1.0
+  gamma: 1.4
+
+numerics:
+  time_integrator: "ssp_rk3"
+  cfl: 0.4
+  polynomial_order: 3
+  flux: "rusanov"
+  hllc_fallback: true
+
+io:
+  output_dir: "output/karman_euler"
+  write_interval: 100
+
+simulation:
+  t_final: 50.0
+  max_steps: 100000 # Let t_final drive it
+  ramp_up_time: 20.0
+
+initial_condition:
+  name: "rest"
+  params:
+    rho: 1.0
+    p: 1.0

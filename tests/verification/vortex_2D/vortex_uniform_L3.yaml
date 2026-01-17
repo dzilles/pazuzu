@@ -1,0 +1,49 @@
+case_name: "Isentropic Vortex Uniform P3"
+solver_type: "euler_2d"
+
+physics:
+  gamma: 1.4
+  u_inf: 1.0
+  v_inf: 1.0
+  p_inf: 1.0
+  rho_inf: 1.0
+  gas_constant: 1.0
+
+initial_condition:
+  name: "vortex"
+  params:
+    beta: 5.0
+    radius: 1.0
+
+mesh:
+  initial_depth: 4
+  x_min: -5.0
+  x_max: 5.0
+  y_min: -5.0
+  y_max: 5.0
+  periodic_x: true
+  periodic_y: true
+
+io:
+  write_interval: 1000
+  output_dir: "output/vortex_uniform_p3"
+
+simulation:
+  t_final: 1.0
+  device: "cuda"
+  max_steps: 10000
+
+amr:
+  max_blocks: 10000
+  max_depth: 4
+  refinement_threshold: 100.0
+  coarsening_threshold: -1.0
+  refine_interval: 1000
+
+numerics:
+  polynomial_order: 3
+  precision: "double"
+  cfl: 0.1
+  dt_min: 1.0e-14
+  flux: "rusanov"
+  time_integrator: "rk4"

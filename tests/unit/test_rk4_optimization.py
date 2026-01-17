@@ -16,11 +16,11 @@ def test_rk4_memory_optimization(device):
         "mesh": {
             "x_min": -1.0, "x_max": 1.0,
             "y_min": -1.0, "y_max": 1.0,
-            "periodic_x": True, "periodic_y": True
+            "periodic_x": True, "periodic_y": True,
+            "initial_depth": 2
         },
         "amr": {
-            "max_blocks": 100,
-            "initial_depth": 2
+            "max_blocks": 100
         },
         "initial_condition": {
             "name": "vortex",

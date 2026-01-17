@@ -6,7 +6,6 @@ __pycache__/
 simulation_video.mp4
 output/
 *.msh
-Scripts/
 work/
 *.h5
 *.xmf

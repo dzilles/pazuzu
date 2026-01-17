@@ -1,25 +1,27 @@
 import warp as wp
-import numpy as np
-
-MAX_BLOCKS = 10000
+from typing import Optional, Any
+from src.kernels.structs import BoundaryState32, BoundaryState64
 
 class SimulationState:
     """
     Encapsulates the dynamic state of the simulation using a Block-AMR Memory Pool.
 
     Holds the primary state vector, right-hand side buffer, and intermediate buffers
-    allocated for the maximum possible number of blocks (MAX_BLOCKS).
+    allocated for the maximum possible number of blocks (max_blocks).
 
     Attributes:
-        q (wp.array): Current state vector (MAX_BLOCKS, Np, 4).
-        rhs (wp.array): Right-hand side (MAX_BLOCKS, Np, 4).
-        active_block_indices (wp.array): Indices of active blocks.
+        q (wp.array): Current state vector (max_blocks, Np, 4).
+        rhs (wp.array): Right-hand side (max_blocks, Np, 4).
+        active_block_indices (wp.array): Indices of active blocks. A compact list of indices pointing to valid slots in the memory pool.
+        num_active_blocks (int): The current number of active blocks in the simulation.
         t (float): Current simulation time.
         step (int): Current time step index.
-        x (wp.array): Physical X coordinates of solution points (MAX_BLOCKS, Np).
-        y (wp.array): Physical Y coordinates of solution points (MAX_BLOCKS, Np).
+        x (wp.array): Physical X coordinates of solution points (max_blocks, Np).
+        y (wp.array): Physical Y coordinates of solution points (max_blocks, Np).
+        bc_mask (wp.array): Boundary Condition ID for each face (max_blocks, 4). -1 if internal or default.
+        bc_data (wp.array): Array of BoundaryState structs containing parameters.
     """
-    def __init__(self, Np, dtype, device, scalar_dtype=wp.float32, max_blocks=MAX_BLOCKS, use_filtering=False, basis=None):
+    def __init__(self, Np: int, dtype: Any, device: str, max_blocks: int, scalar_dtype: Any=wp.float32, use_filtering: bool=False, basis: Optional[Any]=None):
         """
         Allocates simulation buffers.
 
@@ -27,13 +29,14 @@ class SimulationState:
             Np (int): Number of solution points per element.
             dtype (wp.dtype): Warp data type for State (e.g., wp.vec4).
             device (str): Compute device ("cpu" or "cuda").
-            scalar_dtype (wp.dtype): Warp data type for Scalars (e.g., wp.float32).
             max_blocks (int): Size of the memory pool.
+            scalar_dtype (wp.dtype): Warp data type for Scalars (e.g., wp.float32).
             use_filtering (bool): Whether to allocate a buffer for filtering.
             basis (Basis, optional): The basis object for over-integration.
         """
         self.device = device
         self.max_blocks = max_blocks
+        self.num_active_blocks = 0
         self.Np = Np
         self.dtype = dtype
         self.scalar_dtype = scalar_dtype
@@ -48,12 +51,24 @@ class SimulationState:
         self.x = wp.zeros(self.pool_shape, dtype=scalar_dtype, device=device)
         self.y = wp.zeros(self.pool_shape, dtype=scalar_dtype, device=device)
 
+        # --- [NEW] Immersed Boundary Method State ---
+        # Signed Distance Field (phi): >0 Fluid, <0 Solid, =0 Interface
+        self.phi = wp.zeros(self.pool_shape, dtype=scalar_dtype, device=device)
+        # --------------------------------------------
+
         # Block Management
         self.active_block_indices = wp.zeros(max_blocks, dtype=wp.int32, device=device)
         # Neighbors: (MAX_BLOCKS, 4). Indices: 0:Left, 1:Right, 2:Bottom, 3:Top
         # Stores pool index of the neighbor. -1 if no neighbor (boundary).
         self.neighbors = wp.full((max_blocks, 4), -1, dtype=wp.int32, device=device)
         
+        # Boundary Conditions
+        self.bc_mask = wp.full((max_blocks, 4), -1, dtype=wp.int32, device=device)
+        
+        # Initial dummy BC data to allow kernel type inference
+        bc_struct = BoundaryState64 if dtype == wp.vec4d else BoundaryState32
+        self.bc_data = wp.zeros(1, dtype=bc_struct, device=device)
+
         # Time Integration Buffers
         self.q_old = wp.zeros(self.pool_shape, dtype=dtype, device=device)
         self.q_temp = wp.zeros(self.pool_shape, dtype=dtype, device=device)
@@ -81,6 +96,14 @@ class SimulationState:
         self.q_max = wp.zeros(max_blocks, dtype=dtype, device=device)
         self.grad_x = wp.zeros(max_blocks, dtype=dtype, device=device)
         self.grad_y = wp.zeros(max_blocks, dtype=dtype, device=device)
+
+        # Shock Capturing / Limiting
+        self.element_indicator = wp.zeros(max_blocks, dtype=scalar_dtype, device=device)
+        self.solver_mode = wp.zeros(max_blocks, dtype=wp.int32, device=device) # 0: FR, 1: FV
+
+        # Geometry Meta-Data (Managed by Quadtree, stored here for Kernels)
+        self.block_levels = wp.zeros(max_blocks, dtype=wp.int32, device=device)
+        self.root_bounds = wp.zeros(4, dtype=scalar_dtype, device=device)
 
         # Scalar State
         self.t = 0.0

@@ -1,16 +1,20 @@
 amr:
-  initial_depth: 7
+  coarsening_threshold: -1.0
   max_blocks: 70000
-case_name: Isentropic Vortex Convergence Study
+  max_depth: 4
+  refine_interval: 1000
+  refinement_threshold: 100.0
+case_name: Isentropic Vortex Default
 initial_condition:
   name: vortex
   params:
     beta: 5.0
     radius: 1.0
 io:
-  output_dir: /home/dzilles/Documents/Softwareprojekte/pazuzu/tests/verification/vortex_2D/output/run_P3_D7
-  write_interval: 10000
+  output_dir: C:\Users\zille\Documents\pazuzu\output\vortex_convergence\run_P3_D7
+  write_interval: 1000
 mesh:
+  initial_depth: 7
   periodic_x: true
   periodic_y: true
   x_max: 5.0
@@ -33,6 +37,6 @@ physics:
   v_inf: 1.0
 simulation:
   device: cuda
-  max_steps: 100000
+  max_steps: 10000
   t_final: 1.0
 solver_type: euler_2d

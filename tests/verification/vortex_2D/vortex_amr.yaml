@@ -3,7 +3,7 @@ solver_type: "euler_2d"
 
 physics:
   gamma: 1.4
-  u_inf: 1.0
+  u_inf: 0.7
   v_inf: 1.0
   p_inf: 1.0
   rho_inf: 1.0
@@ -14,8 +14,11 @@ initial_condition:
   params:
     beta: 5.0
     radius: 1.0
+    center_x: -2.0
+    center_y: -2.0
 
 mesh:
+  initial_depth: 4
   x_min: -5.0
   x_max: 5.0
   y_min: -5.0
@@ -25,19 +28,18 @@ mesh:
 
 io:
   write_interval: 50
-  output_dir: "output_amr"
+  output_dir: "output/vortex_amr"
 
 simulation:
-  t_final: 2
-  device: "cpu"
-  max_steps: 10000
+  t_final: 10
+  max_steps: 200000
 
 amr:
+  enabled: true
   max_blocks: 200000
-  initial_depth: 4
   max_depth: 7
-  refinement_threshold: 0.03
-  coarsening_threshold: 0.015
+  refinement_threshold: 0.01
+  coarsening_threshold: 0.005
   refine_interval: 50
 
 numerics:

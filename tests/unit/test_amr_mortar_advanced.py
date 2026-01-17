@@ -13,7 +13,7 @@ def device():
     wp.init()
     return "cpu"
 
-def get_params():
+def get_params(rho=1.0, u=0.0, v=0.0, p=1.0):
     params = EquationParams32()
     params.gamma = 1.4
     params.rho_floor = 1e-5
@@ -25,6 +25,10 @@ def get_params():
     params.cp = 1.0
     params.gas_constant = 1.0
     params.flux_type = 0 # Rusanov
+    params.rho_inf = rho
+    params.u_inf = u
+    params.v_inf = v
+    params.p_inf = p
     return params
 
 def test_broken_linear_patch(device):
@@ -43,7 +47,7 @@ def test_broken_linear_patch(device):
     qt.refine_blocks([1, 3], state, basis)
     
     # 2. Set Constant Field q = 2.0
-    params = get_params()
+    params = get_params(rho=2.0, u=1.0, v=0.0, p=1.0)
     q_np = np.zeros((100, Np, 4), dtype=np.float32)
     q_np[:, :, 0] = 2.0 # rho
     q_np[:, :, 1] = 2.0 # rhou (u=1)
@@ -58,8 +62,11 @@ def test_broken_linear_patch(device):
     wp.launch(
         kernel=compute_fr_update,
         dim=qt.num_blocks * Np,
-        inputs=[state.q, state.active_block_indices, state.neighbors, qt.num_blocks, state.rhs,
-                basis.nodes_1d, basis.D1D, basis.dg_L, basis.dg_R, qt.root_bounds_wp, qt.block_levels, params, 0.0],
+        inputs=[
+            state.q, state.active_block_indices, state.neighbors, state.solver_mode,
+            state.bc_mask, state.bc_data, state.x, state.y,
+            qt.num_blocks, state.rhs,
+            basis.nodes_1d, basis.D1D, basis.dg_L, basis.dg_R, qt.root_bounds_wp, qt.block_levels, params, 0.0],
         device=device
     )
     
@@ -102,7 +109,7 @@ def test_mortar_conservation(device):
     # 2. Pulse in Fine block (Right side)
     x_np = state.x.numpy()
     y_np = state.y.numpy()
-    params = get_params()
+    params = get_params(rho=1.0, u=-1.0, v=0.0, p=1.0)
     
     # Gaussian pulse centered at x=0.5 (Fine side)
     # Moving Left (u=-1)
@@ -142,8 +149,11 @@ def test_mortar_conservation(device):
         wp.launch(
             kernel=compute_fr_update,
             dim=qt.num_blocks * Np,
-            inputs=[state.q, state.active_block_indices, state.neighbors, qt.num_blocks, state.rhs,
-                    basis.nodes_1d, basis.D1D, basis.dg_L, basis.dg_R, qt.root_bounds_wp, qt.block_levels, params, 0.0],
+            inputs=[
+                state.q, state.active_block_indices, state.neighbors, state.solver_mode,
+                state.bc_mask, state.bc_data, state.x, state.y,
+                qt.num_blocks, state.rhs,
+                basis.nodes_1d, basis.D1D, basis.dg_L, basis.dg_R, qt.root_bounds_wp, qt.block_levels, params, 0.0],
             device=device
         )
         

@@ -59,12 +59,12 @@ def compute_block_coordinates(
     """
     Computes physical coordinates for all nodes in active blocks.
     """
-    tid_block, tid_node = wp.tid()
+    tid_block, tid_node = wp.tid()  # type: ignore
     
-    if tid_block >= num_active:
+    if tid_block >= num_active: # type: ignore
         return
         
-    pool_idx = active_indices[tid_block]
+    pool_idx = active_indices[tid_block] # type: ignore
     code = morton_codes[pool_idx]
     level = block_levels[pool_idx]
     
@@ -74,7 +74,7 @@ def compute_block_coordinates(
     grid_dim = 1 << level
     
     # Map reference node [-1, 1] to physical block
-    ref_node = nodes_2d[tid_node]
+    ref_node = nodes_2d[tid_node] # type: ignore
     r = ref_node[0]
     s = ref_node[1]
 
@@ -98,5 +98,50 @@ def compute_block_coordinates(
     phys_x = x0 + (r + one) * half * dx
     phys_y = y0 + (s + one) * half * dy
     
-    out_x[pool_idx, tid_node] = phys_x
-    out_y[pool_idx, tid_node] = phys_y
+    out_x[pool_idx, tid_node] = phys_x # type: ignore
+    out_y[pool_idx, tid_node] = phys_y # type: ignore
+
+@wp.kernel
+def tag_quadtree_boundaries(
+    bc_mask: Any,
+    active_indices: Any,
+    num_active: int,
+    block_morton_codes: Any,
+    block_levels: Any,
+    bc_idx_left: int,
+    bc_idx_right: int,
+    bc_idx_bottom: int,
+    bc_idx_top: int
+):
+    """
+    Tags boundary faces for active blocks based on their Morton codes.
+    Checks if a block is on the edge of the domain (0 or grid_dim-1).
+    """
+    tid = wp.tid()
+    if tid >= num_active:
+        return
+        
+    pool_idx = active_indices[tid]
+    code = block_morton_codes[pool_idx]
+    level = block_levels[pool_idx]
+    
+    ix, iy = morton_decode(code, level)
+    grid_dim = 1 << level
+    
+    # Face Indices: 0: Bottom, 1: Right, 2: Top, 3: Left
+    
+    # Left Boundary (x_index == 0)
+    if ix == 0:
+        bc_mask[pool_idx, 3] = bc_idx_left
+        
+    # Right Boundary (x_index == grid_dim - 1)
+    if ix == grid_dim - 1:
+        bc_mask[pool_idx, 1] = bc_idx_right
+        
+    # Bottom Boundary (y_index == 0)
+    if iy == 0:
+        bc_mask[pool_idx, 0] = bc_idx_bottom
+        
+    # Top Boundary (y_index == grid_dim - 1)
+    if iy == grid_dim - 1:
+        bc_mask[pool_idx, 2] = bc_idx_top

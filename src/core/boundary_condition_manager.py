@@ -15,6 +15,22 @@ class BoundaryConditionManager:
         bc.BC_ISOTHERMAL_WALL: ["T_wall"]
     }
 
+    BC_TYPE_MAP = {
+        "slip_wall": bc.BC_WALL,
+        "cylinder_wall": bc.BC_CYLINDER_WALL,
+        "farfield": bc.BC_FARFIELD,
+        "periodic": bc.BC_PERIODIC,
+        "outflow": bc.BC_EXTRAPOLATION,
+        "extrapolation": bc.BC_EXTRAPOLATION,
+        "inlet": bc.BC_INLET,
+        "characteristic_inlet": bc.BC_INLET,
+        "outlet": bc.BC_OUTLET,
+        "characteristic_outlet": bc.BC_OUTLET,
+        "dmr_exact": bc.BC_DOUBLE_MACH_EXACT,
+        "no_slip_wall": bc.BC_NO_SLIP_WALL,
+        "isothermal_wall": bc.BC_ISOTHERMAL_WALL
+    }
+
     def __init__(self, mesh, config):
         self.mesh = mesh
         self.config = config
@@ -31,12 +47,13 @@ class BoundaryConditionManager:
         Returns:
             wp.array: Warp array of BoundaryState structs.
         """
-        num_bcs = len(bc_data_list)
-        if num_bcs == 0:
-            return None
-            
         struct_type = BoundaryState64 if precision == "double" else BoundaryState32
         
+        num_bcs = len(bc_data_list)
+        if num_bcs == 0:
+            # Return a dummy array of size 1 to allow Warp type inference
+            return wp.zeros(1, dtype=struct_type, device=device)
+            
         # Use Warp's internal numpy_dtype to ensure correct alignment/padding
         bc_data_host = np.zeros(num_bcs, dtype=struct_type.numpy_dtype())
         
@@ -91,7 +108,7 @@ class BoundaryConditionManager:
                          ("top" in lower_target or "bottom" in lower_target):
                         axis = "y"
                     else:
-                        axis = "x"  # Fallback
+                        raise ValueError(f"Periodic boundary '{name}' linked to '{target}' requires an explicit 'axis' (x or y).")
                 
                 periodic_pairs.append((name, target, axis))
 
@@ -116,6 +133,55 @@ class BoundaryConditionManager:
                 
                 mesh.apply_periodic_condition(t1, t2, axis)
         
+    def setup_quadtree_bcs(self, root_bounds, device="cuda", precision="single"):
+        """
+        Parses configuration for Cartesian boundaries (Left, Right, Top, Bottom)
+        and prepares the BC data array for the Quadtree solver.
+        
+        Args:
+            root_bounds: (x_min, y_min, x_max, y_max)
+            device: Compute device.
+            precision: "single" or "double".
+            
+        Returns:
+            tuple: (bc_data_device, bc_indices_dict)
+                bc_data_device: Warp array of BoundaryState structs.
+                bc_indices_dict: Dict mapping 'left', 'right', 'top', 'bottom' to index in bc_data.
+                                 Returns -1 for missing boundaries.
+        """
+        bc_data_list = []
+        bc_indices = {
+            "left": -1,
+            "right": -1,
+            "top": -1,
+            "bottom": -1
+        }
+        
+        # Order matters for the list, but we store indices so it's fine.
+        directions = ["left", "right", "top", "bottom"]
+        
+        for dir_name in directions:
+            if dir_name in self.config.boundaries:
+                bc_conf = self.config.boundaries[dir_name]
+                bc_type_str = bc_conf.get('type')
+                bc_id = self._get_bc_id_from_type(bc_type_str)
+                
+                # Validate and extract parameters
+                params = bc_conf.get('params', {})
+                validated_params = self._validate_params(dir_name, bc_id, params)
+                
+                # Create data entry
+                bc_data_list.append({
+                    'type': bc_id,
+                    'params': validated_params
+                })
+                
+                # Store index
+                bc_indices[dir_name] = len(bc_data_list) - 1
+        
+        bc_data_device = self.create_device_array(bc_data_list, device, precision)
+        return bc_data_device, bc_indices
+
     def setup_boundary_conditions(self):
         """
         Parses and validates the configuration to setup the boundary condition mask and data.
@@ -159,27 +225,36 @@ class BoundaryConditionManager:
                     })
                     tag_to_index[tag] = len(bc_data_list) - 1
             
-            # Apply to mask
-            for e in range(self.mesh.num_elements):
-                for f in range(4):
-                    tag = self.mesh.boundary_tags_host[e, f]
-                    if tag > 0:
-                        if tag in tag_to_index:
-                            # If it's periodic but tag is still > 0, it means linking failed or wasn't performed
-                            data_idx = tag_to_index[tag]
-                            if bc_data_list[data_idx]['type'] == bc.BC_PERIODIC:
-                                raise ValueError(f"Boundary Tag {tag} is marked as periodic but remains unlinked in the mesh. Ensure 'linked_to' is specified correctly and 'apply_periodic_condition' was called.")
-                            
-                            bc_mask_host[e, f] = data_idx
-                        else:
-                            # Fallback if tag is in mesh but not in config: use Farfield with defaults
-                            # Create a unique entry for this tag
-                            bc_data_list.append({
-                                'type': bc.BC_FARFIELD,
-                                'params': self._get_farfield_defaults()
-                            })
-                            tag_to_index[tag] = len(bc_data_list) - 1
-                            bc_mask_host[e, f] = tag_to_index[tag]
+        # Vectorized application
+        boundary_tags = self.mesh.boundary_tags_host
+        
+        # 1. Handle configured tags
+        for tag, idx in tag_to_index.items():
+            # Check for unlinked periodic
+            if bc_data_list[idx]['type'] == bc.BC_PERIODIC:
+                # If periodic tag remains in mesh, it wasn't linked.
+                # Use np.any to check if this tag exists in the mesh
+                if np.any(boundary_tags == tag):
+                     raise ValueError(f"Boundary Tag {tag} is marked as periodic but remains unlinked in the mesh. Ensure 'linked_to' is specified correctly and 'apply_periodic_condition' was called.")
+            
+            # Apply mask
+            bc_mask_host[boundary_tags == tag] = idx
+            
+        # 2. Handle unconfigured tags
+        present_tags = np.unique(boundary_tags)
+        for tag in present_tags:
+            if tag > 0 and tag not in tag_to_index:
+                # Warning
+                print(f"Warning: Boundary tag {tag} found in mesh but not configured. Defaulting to BC_FARFIELD.")
+                
+                # Create fallback entry
+                bc_data_list.append({
+                    'type': bc.BC_FARFIELD,
+                    'params': self._get_farfield_defaults()
+                })
+                new_idx = len(bc_data_list) - 1
+                tag_to_index[tag] = new_idx
+                bc_mask_host[boundary_tags == tag] = new_idx
                         
         return bc_mask_host, bc_data_list
 
@@ -228,29 +303,7 @@ class BoundaryConditionManager:
         """
         Maps a string boundary type (from config) to an integer ID (from kernels).
         """
-        if bc_type == "slip_wall": 
-            return bc.BC_WALL
-        elif bc_type == "cylinder_wall": 
-            return bc.BC_CYLINDER_WALL
-        elif bc_type == "farfield": 
-            return bc.BC_FARFIELD
-        elif bc_type == "periodic":
-            return bc.BC_PERIODIC
-        elif bc_type in ["outflow", "extrapolation"]: 
-            return bc.BC_EXTRAPOLATION
-        elif bc_type == "inlet" or bc_type == "characteristic_inlet": 
-            return bc.BC_INLET
-        elif bc_type == "outlet" or bc_type == "characteristic_outlet": 
-            return bc.BC_OUTLET
-        elif bc_type == "dmr_exact":
-            return bc.BC_DOUBLE_MACH_EXACT
-        elif bc_type == "no_slip_wall":
-            return bc.BC_NO_SLIP_WALL
-        elif bc_type == "isothermal_wall":
-            return bc.BC_ISOTHERMAL_WALL
-        
-        # Default fallback
-        return bc.BC_FARFIELD
+        return self.BC_TYPE_MAP.get(bc_type, bc.BC_FARFIELD)
 
     def _get_type_name(self, bc_id):
         """Helper to get string name from ID for error messages."""

@@ -1,5 +1,4 @@
 import warp as wp
-from typing import Optional
 from src.core.simulation_state import SimulationState
 from src.kernels.common_kernels import rk_stage_1, rk_stage_2, rk_stage_3, rk4_stage_update, rk4_final_update
 

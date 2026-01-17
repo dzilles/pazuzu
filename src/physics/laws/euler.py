@@ -1,6 +1,5 @@
 import warp as wp
 from src.kernels.utils import make_vec4_generic
-from src.kernels.structs import EquationParams32
 from typing import Any
 
 @wp.func

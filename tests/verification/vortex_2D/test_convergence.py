@@ -50,22 +50,22 @@ def test_vortex_convergence_regression():
         log_err = np.log(errors)
         coeffs = np.polyfit(log_h, log_err, 1)
         slope = coeffs[0]
-        
+
         # 2. Get finest mesh error (last element)
         finest_error = errors[-1]
-        
+
         expected_slope = metrics['expected_slope']
         expected_finest_error = metrics['finest_error']
-        
+
         print(f"\n--- Checking P={P} ---")
         print(f"Slope: Actual={slope:.4f}, Expected={expected_slope:.4f}")
         print(f"Error (Finest): Actual={finest_error:.4e}, Expected={expected_finest_error:.4e}")
-        
+
         # Check Slope: Should not be significantly worse (lower) than expected
         # We allow it to be *better* (higher), but flag if it drops by > 5%
         assert slope >= expected_slope * (1 - tolerance), \
             f"P={P} Convergence rate degraded! Actual: {slope:.4f}, Expected: {expected_slope:.4f}"
-            
+
         # Check Error: Should not be significantly higher than expected
         # We allow it to be *smaller* (better), but flag if it increases by > 5%
         assert finest_error <= expected_finest_error * (1 + tolerance), \

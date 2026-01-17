@@ -204,8 +204,10 @@ def hllc_flux(q_l, q_r, normal_vector):
     # Apply simple fluxes
     # Note: If q_l is 1D (shape (4,)), masks are scalars. If (4, N), masks are (N,)
     if mask_l.ndim == 0:
-        if mask_l: return flux_l
-        if mask_r: return flux_r
+        if mask_l:
+            return flux_l
+        if mask_r:
+            return flux_r
         # Star logic for scalar input
         if s_star >= 0:
             # Star Left

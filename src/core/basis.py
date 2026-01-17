@@ -37,6 +37,7 @@ class Basis:
             over_integration_order (int, optional): The number of quadrature points in 1D for over-integration. 0 to disable.
         """
         self.N = polynomial_degree
+        assert self.N > 0, "Polynomial degree (N) must be greater than 0."
         self.N1 = self.N + 1
         self.Np = self.N1 * self.N1
         self.Nfp = self.N1
@@ -271,13 +272,8 @@ class Basis:
             Lambda[k, k] = sigma
             
         # 3. Compute 1D Filter Matrix F1d = V * Lambda * V^(-1)
-        # Use the orthogonality of Legendre polynomials and quadrature to compute V_inv.
-        # (V^-1)_kj = (2k+1)/2 * P_k(x_j) * w_j
-        weights = self.weights_1d.numpy()
-        V_inv = np.zeros((self.N1, self.N1))
-        for k in range(self.N1):
-            P_k = legendre(k)
-            V_inv[k, :] = (2.0 * k + 1.0) / 2.0 * P_k(nodes) * weights
+        # Use exact matrix inversion to avoid quadrature errors for the highest mode (N).
+        V_inv = np.linalg.inv(V)
 
         F1d = V @ Lambda @ V_inv
         
@@ -298,9 +294,12 @@ class Basis:
         Returns:
             tuple: A tuple (nodes, weights) containing numpy arrays of the quadrature points and weights.
         """
-        if N == 0: return np.array([0.0]), np.array([2.0])
-        if N == 1: roots = np.array([])
-        else: roots = np.roots(legendre(N).deriv(1))
+        if N == 0:
+            return np.array([0.0]), np.array([2.0])
+        if N == 1:
+            roots = np.array([])
+        else:
+            roots = np.roots(legendre(N).deriv(1))
         
         nodes = np.concatenate(([-1.0], np.sort(roots), [1.0]))
         weights = 2 / (N * self.N1 * legendre(N)(nodes)**2)
@@ -325,7 +324,8 @@ class Basis:
         """
         Generates mappings from face indices to global 2D node indices.
         
-        Assumes standard tensor-product ordering (row-major flattening).
+        Assumes standard tensor-product ordering (row-major flattening):
+        Index = i * N1 + j, where i is the row (y-direction) and j is the column (x-direction).
         Face 0: Bottom (y=-1)
         Face 1: Right (x=+1)
         Face 2: Top (y=+1)
@@ -352,12 +352,15 @@ class Basis:
             np.array: The (N1, N1) differentiation matrix D, where D[i,j] = dL_j/dx(x_i).
         """
         D = np.zeros((self.N1, self.N1))
+        # Pre-evaluate Legendre polynomial of degree N
+        Ln = legendre(self.N)
+        
         for i in range(self.N1):
             row_sum = 0.0   # Accumulator
             for j in range(self.N1):
                 if i != j:
-                    Ln_i = legendre(self.N)(nodes[i])
-                    Ln_j = legendre(self.N)(nodes[j])
+                    Ln_i = Ln(nodes[i])
+                    Ln_j = Ln(nodes[j])
                     val = Ln_i / (Ln_j * (nodes[i] - nodes[j]))
                     D[i, j] = val
                     row_sum += val
@@ -377,14 +380,14 @@ class Basis:
         Returns:
             tuple: (Dr, Ds), the differentiation matrices for r and s directions respectively.
         """
-        I = np.eye(self.N1)
+        eye_mat = np.eye(self.N1)
         # Note: The order depends on the flattening strategy.
         # Since nodes_2d was created via meshgrid(x, y) then flattened:
         # x varies fast (inner loop), y varies slow (outer loop).
         # Dr acts on x -> Kron(I, D)
         # Ds acts on y -> Kron(D, I)
-        Dr = np.kron(I, D1D) 
-        Ds = np.kron(D1D, I)
+        Dr = np.kron(eye_mat, D1D) 
+        Ds = np.kron(D1D, eye_mat)
         return Dr, Ds
         
     def _create_lift_matrix(self, face_nodes, M_face, inv_mass_matrix_diag):

@@ -71,3 +71,31 @@ def init_isentropic_vortex(
     E = p / (gamma - one) + half * rho * (u*u + v*v)
     
     q[pool_idx, node_idx] = bc.make_vec4_generic(rho, rho*u, rho*v, E)  # type: ignore # Warp type inference
+
+@wp.kernel
+def init_uniform(
+    q: Any,
+    active_indices: Any,
+    num_active: int,
+    params: Any,
+    rho: Any,
+    u: Any,
+    v: Any,
+    p: Any
+):
+    # Launch dimensions: (num_active, Np)
+    block_idx, node_idx = wp.tid()  # type: ignore
+    
+    if block_idx >= num_active:
+        return
+        
+    pool_idx = active_indices[block_idx]  # type: ignore
+    
+    template = rho
+    one = bc.get_one_generic(template)
+    half = bc.get_half_generic(template)
+    
+    kin = half * rho * (u*u + v*v)
+    E = p / (params.gamma - one) + kin
+    
+    q[pool_idx, node_idx] = bc.make_vec4_generic(rho, rho*u, rho*v, E)  # type: ignore

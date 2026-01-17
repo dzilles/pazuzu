@@ -1,5 +1,6 @@
 import warp as wp
 from typing import Any
+from src.kernels import utils as u
 
 @wp.kernel
 def rk_stage_1(
@@ -12,10 +13,10 @@ def rk_stage_1(
     """
     Performs the first stage of the Low-Storage SSP-RK3 time integration scheme.
     """
-    block_idx, node_idx = wp.tid()
-    pool_idx = active_indices[block_idx]
+    block_idx, node_idx = wp.tid()  # type: ignore
+    pool_idx = active_indices[block_idx] # type: ignore
     
-    q_out[pool_idx, node_idx] = q[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx]
+    q_out[pool_idx, node_idx] = q[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx] # type: ignore
 
 @wp.kernel
 def rk_stage_2(
@@ -31,11 +32,10 @@ def rk_stage_2(
     """
     Performs the second stage of the Low-Storage SSP-RK3 time integration scheme.
     """
-    block_idx, node_idx = wp.tid()
-    pool_idx = active_indices[block_idx]
+    block_idx, node_idx = wp.tid()  # type: ignore
+    pool_idx = active_indices[block_idx] # type: ignore
     
-    # 0.75 * Q_n + 0.25 * (Q_1 + dt * RHS)
-    q_out[pool_idx, node_idx] = c1 * q[pool_idx, node_idx] + c2 * (q_1[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx])
+    q_out[pool_idx, node_idx] = c1 * q[pool_idx, node_idx] + c2 * (q_1[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx]) # type: ignore
 
 @wp.kernel
 def rk_stage_3(
@@ -51,11 +51,10 @@ def rk_stage_3(
     """
     Performs the third and final stage of the Low-Storage SSP-RK3 time integration scheme.
     """
-    block_idx, node_idx = wp.tid()
-    pool_idx = active_indices[block_idx]
+    block_idx, node_idx = wp.tid()  # type: ignore
+    pool_idx = active_indices[block_idx] # type: ignore
     
-    # 1/3 * Q_n + 2/3 * (Q_2 + dt * RHS)
-    q_out[pool_idx, node_idx] = c1 * q[pool_idx, node_idx] + c2 * (q_2[pool_idx, node_idx] + dt* rhs[pool_idx, node_idx])
+    q_out[pool_idx, node_idx] = c1 * q[pool_idx, node_idx] + c2 * (q_2[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx]) # type: ignore
 
 @wp.kernel
 def rk4_stage_update(
@@ -74,12 +73,12 @@ def rk4_stage_update(
     q_accum += weight_accum * dt * rhs
     q_next = q_old + weight_next * dt * rhs
     """
-    block_idx, node_idx = wp.tid()
-    pool_idx = active_indices[block_idx]
+    block_idx, node_idx = wp.tid()  # type: ignore
+    pool_idx = active_indices[block_idx] # type: ignore
     
-    term = dt * rhs[pool_idx, node_idx]
-    q_accum[pool_idx, node_idx] = q_accum[pool_idx, node_idx] + weight_accum * term
-    q_next[pool_idx, node_idx] = q_old[pool_idx, node_idx] + weight_next * term
+    term = dt * rhs[pool_idx, node_idx] # type: ignore
+    q_accum[pool_idx, node_idx] = q_accum[pool_idx, node_idx] + weight_accum * term # type: ignore
+    q_next[pool_idx, node_idx] = q_old[pool_idx, node_idx] + weight_next * term # type: ignore
 
 @wp.kernel
 def rk4_final_update(
@@ -94,10 +93,48 @@ def rk4_final_update(
     
     q_accum += weight_accum * dt * rhs
     """
-    block_idx, node_idx = wp.tid()
-    pool_idx = active_indices[block_idx]
+    block_idx, node_idx = wp.tid()  # type: ignore
+    pool_idx = active_indices[block_idx] # type: ignore
     
-    q_accum[pool_idx, node_idx] = q_accum[pool_idx, node_idx] + weight_accum * dt * rhs[pool_idx, node_idx]
+    q_accum[pool_idx, node_idx] = q_accum[pool_idx, node_idx] + weight_accum * dt * rhs[pool_idx, node_idx] # type: ignore
+
+@wp.kernel
+def apply_filter_matrix(
+    q: Any,
+    F: Any,
+    q_out: Any
+):
+    block_idx, node_idx = wp.tid()  # type: ignore
+    Np = q.shape[1]
+    
+    template = q[0, 0][0]
+    zero = template - template
+    res = u.make_vec4_generic(zero, zero, zero, zero)
+    
+    for j in range(Np):
+        res += q[block_idx, j] * F[node_idx, j] # type: ignore
+        
+    q_out[block_idx, node_idx] = res # type: ignore
+
+@wp.kernel
+def apply_filter_matrix_indirect(
+    q: Any,
+    active_indices: Any,
+    F: Any,
+    q_out: Any
+):
+    block_idx, node_idx = wp.tid()  # type: ignore
+    pool_idx = active_indices[block_idx] # type: ignore
+    Np = q.shape[1]
+    
+    template = q[0, 0][0]
+    zero = template - template
+    res = u.make_vec4_generic(zero, zero, zero, zero)
+    
+    for j in range(Np):
+        res += q[pool_idx, j] * F[node_idx, j] # type: ignore
+        
+    q_out[pool_idx, node_idx] = res # type: ignore
 
 @wp.kernel
 def check_nan(
@@ -120,10 +157,10 @@ def check_nan_indirect(
     tid = wp.tid()
     Np = q.shape[1]
     
-    block_idx = tid // Np
-    node_idx = tid % Np
+    block_idx = tid // Np # type: ignore
+    node_idx = tid % Np # type: ignore
     
-    pool_idx = active_indices[block_idx]
+    pool_idx = active_indices[block_idx] # type: ignore
     
     val = q[pool_idx, node_idx]  # type: ignore # Warp type inference
     

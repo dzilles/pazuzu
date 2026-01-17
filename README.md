@@ -6,7 +6,7 @@
 
 Pazuzu is a high-performance **2D Discontinuous Galerkin (DG) Solver** for compressible fluid dynamics, written in Python and accelerated by **Nvidia Warp** (`warp-lang`) for both CPU and CUDA backends.
 
-It supports both the **Euler equations** and the **Navier-Stokes equations** on structured (Cartesian) and unstructured meshes.
+It supports both the **Euler equations** and the **Navier-Stokes equations** on structured (Cartesian) meshes.
 
 ## Key Features
 
@@ -20,7 +20,6 @@ It supports both the **Euler equations** and the **Navier-Stokes equations** on 
     *   **Numerical Fluxes:** Lax-Friedrichs / Rusanov.
 *   **Meshing:**
     *   Built-in Cartesian mesh generator.
-    *   Support for unstructured Gmsh (`.msh`) files.
 *   **I/O:**
     *   HDF5 data storage (via `h5py`).
     *   XMF descriptors for seamless visualization in **ParaView**.
@@ -32,7 +31,7 @@ It supports both the **Euler equations** and the **Navier-Stokes equations** on 
 ├── config/                 # YAML configuration files
 ├── src/
 │   ├── core/               # Driver, state, and basis functions
-│   ├── geometry/           # Mesh handling (Cartesian & Unstructured)
+│   ├── geometry/           # Mesh handling (Cartesian)
 │   ├── physics/            # Euler and Navier-Stokes solver logic
 │   ├── kernels/            # Warp kernels (fluxes, BCs, RK stages)
 │   ├── numerics/           # Time stepping algorithms
@@ -80,7 +79,7 @@ python solver.py config/my_simulation.yaml
 
 Simulations are controlled via `.yaml` files in the `config/` directory. You can specify:
 *   **Simulation type:** `euler_2d` or `navier_stokes_2d`.
-*   **Mesh:** Type (cartesian/unstructured), resolution, and bounds.
+*   **Mesh:** Resolution and bounds.
 *   **Numerical:** Polynomial degree for DG.
 *   **Device:** `cpu` or `cuda`.
 
@@ -110,10 +109,7 @@ The `tests/verification/` directory contains several standard cases:
 *   **Isentropic Vortex:** Order of accuracy verification.
     *   [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dzilles/pazuzu/blob/feature/quadtree-amr-fr/tests/verification/vortex_2D/vortex_analysis.ipynb)
 *   **Channel Flow:** Wall boundary conditions.
-*   **Cylinder Flow:** Unstructured mesh and complex geometry.
+
 *   **Acoustic Pulse:** Wave propagation.
 *   **Sod Shock Tube:** Discontinuity handling.
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details (if applicable).

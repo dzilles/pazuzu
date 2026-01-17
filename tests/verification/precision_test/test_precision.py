@@ -74,7 +74,7 @@ def compute_errors(solver):
             w_2d[j*N1 + i] = w[i] * w[j]
             
     # Jacobian Calculation (Accounts for Domain Size and Depth)
-    level = solver.config.amr.initial_depth
+    level = solver.config.mesh.initial_depth
     grid_dim = 1 << level
     
     hx = Lx / grid_dim
@@ -102,8 +102,10 @@ def compute_errors(solver):
 def run_vortex_simulation(precision_mode):
     print(f"\n--- Running Simulation with precision={precision_mode} ---")
     
-    # Ensure output is in the local output folder
-    output_base = os.path.join(os.path.dirname(__file__), "output")
+    # Ensure output is in the project root output folder
+    # Assuming test is in tests/verification/precision_test/
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+    output_base = os.path.join(root_dir, "output")
     
     # "Nano-Vortex" Configuration
     # We center the domain at 1.0.
@@ -127,11 +129,11 @@ def run_vortex_simulation(precision_mode):
             x_max=domain_center + domain_width/2,
             y_min=domain_center - domain_width/2, 
             y_max=domain_center + domain_width/2,
-            periodic_x=True, periodic_y=True
+            periodic_x=True, periodic_y=True,
+            initial_depth=initial_depth
         ),
         amr=AmrConfig(
-            max_blocks=500, 
-            initial_depth=initial_depth
+            max_blocks=500
         ),
         initial_condition=InitialConditionConfig(
             name="vortex",

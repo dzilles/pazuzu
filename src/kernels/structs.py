@@ -18,6 +18,7 @@ class EquationParams32:
     v_inf: wp.float32
     p_inf: wp.float32
     epsilon: wp.float32
+    ramp_up_time: wp.float32
     flux_type: wp.int32
     hllc_fallback: wp.int32
 
@@ -39,6 +40,7 @@ class EquationParams64:
     v_inf: wp.float64
     p_inf: wp.float64
     epsilon: wp.float64
+    ramp_up_time: wp.float64
     flux_type: wp.int32
     hllc_fallback: wp.int32
 

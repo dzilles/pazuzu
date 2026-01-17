@@ -3,23 +3,9 @@ import numpy as np
 from typing import Tuple, Optional
 from src.kernels.grid_kernels import compute_block_coordinates, generate_morton_codes
 from src.kernels.connectivity_kernels import init_hash_map, populate_hash_map, compute_neighbors, mark_mortar_neighbors
-from src.kernels.amr_kernels import mark_blocks_gradient, balance_refine_flags, prolongate_batch, restrict_batch, zero_blocks
+from src.kernels.amr_kernels import mark_blocks_gradient, balance_refine_flags, prolongate_batch, restrict_batch, zero_blocks, mark_blocks_on_interface
 
 ROOT_BOUNDS = (-1.0, -1.0, 1.0, 1.0) # x_min, y_min, x_max, y_max
-
-# --- Python-side Morton Encoding Helpers ---
-def part1by1(n: int) -> int:
-    """Inserts a 0 bit after each of the low 16 bits of n."""
-    n = (n ^ (n << 8)) & 0x00ff00ff
-    n = (n ^ (n << 4)) & 0x0f0f0f0f
-    n = (n ^ (n << 2)) & 0x33333333
-    n = (n ^ (n << 1)) & 0x55555555
-    return n
-
-def morton_encode(x: int, y: int, level: int) -> int:
-    """Interleaves bits of x and y and adds a sentinel bit at (1 << 2*level)."""
-    interleaved = part1by1(x) | (part1by1(y) << 1)
-    return (1 << (2 * level)) | interleaved
 
 class Quadtree:
     """
@@ -27,6 +13,46 @@ class Quadtree:
     
     Manages the grid hierarchy and mapping to the memory pool.
     """
+    # --- Static Morton Encoding Helpers ---
+    @staticmethod
+    def part1by1(n: int) -> int:
+        """Inserts a 0 bit after each of the low 16 bits of n."""
+        n = (n ^ (n << 8)) & 0x00ff00ff
+        n = (n ^ (n << 4)) & 0x0f0f0f0f
+        n = (n ^ (n << 2)) & 0x33333333
+        n = (n ^ (n << 1)) & 0x55555555
+        return n
+    
+    @staticmethod
+    def compact1by1(n: int) -> int:
+        """Inverse of part1by1. Extracts bits at even positions."""
+        n = n & 0x55555555
+        n = (n ^ (n >> 1)) & 0x33333333
+        n = (n ^ (n >> 2)) & 0x0f0f0f0f
+        n = (n ^ (n >> 4)) & 0x00ff00ff
+        n = (n ^ (n >> 8)) & 0x0000ffff
+        return n
+
+    @staticmethod
+    def morton_encode(x: int, y: int, level: int) -> int:
+        """
+        Interleaves bits of x and y and adds a sentinel bit at (1 << 2*level).
+        Checks for overflow to prevent collisions.
+        """
+        limit = 1 << level
+        if x >= limit or y >= limit or x < 0 or y < 0:
+            raise ValueError(f"Coordinates ({x}, {y}) out of bounds for level {level} (max {limit-1})")
+        
+        interleaved = Quadtree.part1by1(x) | (Quadtree.part1by1(y) << 1)
+        return (1 << (2 * level)) | interleaved
+    
+    @staticmethod
+    def morton_decode(code: int, level: int) -> Tuple[int, int]:
+        """Decodes Morton code into (x, y) by removing the sentinel bit."""
+        mask = (1 << (2 * level)) - 1
+        interleaved = code & mask
+        return Quadtree.compact1by1(interleaved), Quadtree.compact1by1(interleaved >> 1)
+
     def __init__(self, device: str = "cpu", max_blocks: int = 10000, root_bounds: Tuple[float, float, float, float] = (-1.0, -1.0, 1.0, 1.0), periodic_x: bool = False, periodic_y: bool = False, dtype=wp.float32, max_depth: int = 10):
         self.device = device
         self.max_blocks = max_blocks
@@ -44,7 +70,7 @@ class Quadtree:
         
         # Free List Management (Stack of free indices)
         # Initialize with all indices 0..max_blocks-1
-        self.free_pool_indices = wp.array(
+        self.free_pool_indices: wp.array = wp.array(
             np.arange(max_blocks, dtype=np.int32), 
             dtype=wp.int32, 
             device=device
@@ -75,9 +101,6 @@ class Quadtree:
             state (SimulationState): The simulation state to populate.
             basis (Basis): The basis defining the nodes.
         """
-        if level > self.max_depth:
-            raise ValueError(f"Level {level} exceeds max_depth {self.max_depth}")
-            
         print(f"Generating uniform grid at level {level}...")
         
         grid_dim = 1 << level
@@ -133,7 +156,7 @@ class Quadtree:
         
         print(f"Created {self.num_blocks} blocks.")
 
-    def adapt_mesh(self, state, basis, refine_threshold: float, coarsen_threshold: float):
+    def adapt_mesh(self, state, basis, refine_threshold: float, coarsen_threshold: float, ibm_enabled: bool = False):
         """
         Adapts the mesh by refining and coarsening active blocks based on gradient thresholds.
         """
@@ -158,6 +181,21 @@ class Quadtree:
             ],
             device=self.device
         )
+        
+        # --- Step A.2: Mark (Geometry Based - IBM) ---
+        # This overrides gradient decisions to ensure the geometry is resolved.
+        if ibm_enabled:
+             wp.launch(
+                 kernel=mark_blocks_on_interface,
+                 dim=self.num_blocks,
+                 inputs=[
+                     state.phi,
+                     state.active_block_indices,
+                     self.num_blocks,
+                     refine_flags
+                 ],
+                 device=self.device
+             )
         
         # --- Step B: Balance (2:1 Constraint) ---
         # Note: Balancing only applies to refinement flags (1).
@@ -205,6 +243,12 @@ class Quadtree:
 
         # --- Step D: Execute Coarsening ---
         self.coarsen_marked_blocks(state, basis, h_flags)
+
+    def refine_marked_blocks(self, state, basis, threshold: float):
+        """
+        Backward compatibility wrapper for refinement.
+        """
+        self.adapt_mesh(state, basis, refine_threshold=threshold, coarsen_threshold=-1.0)
 
     def refine_blocks(self, blocks_to_refine: list, state, basis):
         """
@@ -265,7 +309,7 @@ class Quadtree:
         
         # --- Step D: Prolongate (Data Transfer) ---
         num_ops = len(prolongation_ops)
-        ops_array = wp.array(np.array(prolongation_ops, dtype=np.int32), dtype=wp.int32, device=self.device)
+        ops_array: wp.array = wp.array(np.array(prolongation_ops, dtype=np.int32), dtype=wp.int32, device=self.device)
         
         wp.launch(
             kernel=prolongate_batch,
@@ -300,14 +344,14 @@ class Quadtree:
         h_new_free[len(remaining_free):new_free_count] = freed_parents
         
         # Upload
-        self.free_pool_indices = wp.array(h_new_free, dtype=wp.int32, device=self.device)
+        wp.copy(self.free_pool_indices, wp.array(h_new_free, dtype=wp.int32, device="cpu"), count=new_free_count)
         self.num_free = new_free_count
         
         self.num_blocks = len(new_active_list)
-        wp.copy(state.active_block_indices, wp.array(np.array(new_active_list, dtype=np.int32), dtype=wp.int32, device=self.device), count=self.num_blocks)
+        wp.copy(state.active_block_indices, wp.array(np.array(new_active_list, dtype=np.int32), dtype=wp.int32, device="cpu"), count=self.num_blocks)
         
-        self.block_morton_codes = wp.array(h_morton_codes, dtype=wp.int32, device=self.device)
-        self.block_levels = wp.array(h_levels, dtype=wp.int32, device=self.device)
+        wp.copy(self.block_morton_codes, wp.array(h_morton_codes, dtype=wp.int32, device="cpu"))
+        wp.copy(self.block_levels, wp.array(h_levels, dtype=wp.int32, device="cpu"))
         
         # --- Step F: Rebuild ---
         # Recompute coordinates
@@ -329,17 +373,32 @@ class Quadtree:
         self.build_connectivity(state)
 
 
-    def coarsen_marked_blocks(self, state, basis, refine_flags: np.ndarray):
+    def coarsen_marked_blocks(self, state, basis, refine_flags: Optional[np.ndarray] = None):
         """
         Coarsens families of 4 active sibling blocks into their parent if all are marked for coarsening.
+        
+        Constraint: 2:1 Balance. A family cannot be coarsened if any of its members has a neighbor
+        that is finer (i.e., requires the current fine level to exist). This is checked by verifying
+        if any sibling is adjacent to a mortar interface where the neighbor is finer.
         """
+        if refine_flags is None:
+            # Default: mark all blocks for potential coarsening
+            refine_flags = np.full(self.max_blocks, -1, dtype=np.int32)
+
         # --- Identify Coarsenable Families ---
         h_active = state.active_block_indices.numpy()[:self.num_blocks]
         h_codes = self.block_morton_codes.numpy()
         h_levels = self.block_levels.numpy()
-        h_neighbors = state.neighbors.numpy()
         
-        candidates = {} # parent_key -> [child_pool_idx, ...]
+        # Identify blocks that have FINER neighbors (using mortar list)
+        has_finer = set()
+        num_mortars_host = int(self.num_mortars.numpy()[0])
+        if num_mortars_host > 0:
+            h_mortars = self.mortar_list.numpy()[:num_mortars_host]
+            for i in range(num_mortars_host):
+                has_finer.add(h_mortars[i, 2]) # index 2 is coarse_idx
+        
+        candidates: dict[tuple[int, int], list[int]] = {} # parent_key -> [child_pool_idx, ...]
         
         # Group ALL active leaf nodes by their potential parent
         for idx in h_active:
@@ -370,12 +429,9 @@ class Quadtree:
                         can_coarsen = False
                         break
                     
-                    # neighbor_idx == -2 (MORTAR_FLAG) means the neighbor is FINER
-                    for face in range(4):
-                        if h_neighbors[c_idx, face] == -2:
-                            can_coarsen = False
-                            break
-                    if not can_coarsen:
+                    # If any sibling has a finer neighbor, it cannot coarsen
+                    if c_idx in has_finer:
+                        can_coarsen = False
                         break
                 
                 if can_coarsen:
@@ -410,7 +466,7 @@ class Quadtree:
         # 0. Zero Parents
         parent_indices_to_zero = np.array([p[0] for p in parents_created], dtype=np.int32)
         num_parents = len(parent_indices_to_zero)
-        wp_parents_to_zero = wp.array(parent_indices_to_zero, dtype=wp.int32, device=self.device)
+        wp_parents_to_zero: wp.array = wp.array(parent_indices_to_zero, dtype=wp.int32, device=self.device)
         
         wp.launch(
             kernel=zero_blocks,
@@ -421,7 +477,7 @@ class Quadtree:
 
         # 1. Restrict
         num_ops = len(restriction_ops)
-        ops_array = wp.array(np.array(restriction_ops, dtype=np.int32), dtype=wp.int32, device=self.device)
+        ops_array: wp.array = wp.array(np.array(restriction_ops, dtype=np.int32), dtype=wp.int32, device=self.device)
         
         wp.launch(
             kernel=restrict_batch,
@@ -446,7 +502,7 @@ class Quadtree:
             new_active_list.append(p_idx)
             
         self.num_blocks = len(new_active_list)
-        wp.copy(state.active_block_indices, wp.array(np.array(new_active_list, dtype=np.int32), dtype=wp.int32, device=self.device), count=self.num_blocks)
+        wp.copy(state.active_block_indices, wp.array(np.array(new_active_list, dtype=np.int32), dtype=wp.int32, device="cpu"), count=self.num_blocks)
         
         remaining_free = h_free_indices[free_ptr : self.num_free]
         freed_children_list = list(children_set)
@@ -460,11 +516,11 @@ class Quadtree:
         h_new_free[:num_remaining] = remaining_free
         h_new_free[num_remaining : num_remaining + num_freed] = freed_children
         
-        self.free_pool_indices = wp.array(h_new_free, dtype=wp.int32, device=self.device)
+        wp.copy(self.free_pool_indices, wp.array(h_new_free, dtype=wp.int32, device="cpu"), count=new_free_count)
         self.num_free = new_free_count
         
-        self.block_morton_codes = wp.array(h_codes, dtype=wp.int32, device=self.device)
-        self.block_levels = wp.array(h_levels, dtype=wp.int32, device=self.device)
+        wp.copy(self.block_morton_codes, wp.array(h_codes, dtype=wp.int32, device="cpu"))
+        wp.copy(self.block_levels, wp.array(h_levels, dtype=wp.int32, device="cpu"))
         
         # --- Rebuild ---
         wp.launch(
@@ -549,12 +605,32 @@ class Quadtree:
 
 
     def get_bounds(self, morton_code: int) -> Tuple[float, float, float, float]:
-
         """
         Decodes a Morton code to get the bounding box of the block.
         """
-        # Placeholder
-        return self.root_bounds
+        if morton_code == 0:
+             return self.root_bounds # Root
+        
+        # Determine level from sentinel bit position
+        # The code is (1 << 2*level) | interleaved.
+        # So msb_index = 2*level. level = msb_index // 2.
+        
+        msb_index = morton_code.bit_length() - 1
+        level = msb_index // 2
+        
+        ix, iy = Quadtree.morton_decode(morton_code, level)
+        
+        grid_dim = 1 << level
+        domain_w = self.root_bounds[2] - self.root_bounds[0]
+        domain_h = self.root_bounds[3] - self.root_bounds[1]
+        
+        dx = domain_w / grid_dim
+        dy = domain_h / grid_dim
+        
+        x0 = self.root_bounds[0] + ix * dx
+        y0 = self.root_bounds[1] + iy * dy
+        
+        return (x0, y0, x0 + dx, y0 + dy)
 
     def find_neighbors(self, morton_code: int):
         """

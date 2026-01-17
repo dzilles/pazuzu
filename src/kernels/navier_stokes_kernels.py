@@ -280,58 +280,42 @@ def compute_viscous_surface_term(
             gTo = gTi
             
             if neighbor_e >= 0:
+                # --- Interior Face ---
                 neighbor_face = neighbor_face_indices[e, face_idx]
                 neighbor_node_idx = face_map[neighbor_face, k]
+                
                 qo = q[neighbor_e, neighbor_node_idx]
                 guo = grad_u[neighbor_e, neighbor_node_idx]
                 gvo = grad_v[neighbor_e, neighbor_node_idx]
                 gTo = grad_T[neighbor_e, neighbor_node_idx]
+                
+                Fvo = viscous_flux_x(qo, guo, gvo, gTo, params) * nx + viscous_flux_y(qo, guo, gvo, gTo, params) * ny
+                
+                # Standard Central Flux
+                Fv_star = params.half * (Fvi + Fvo)
+                
             else:
+                # --- Boundary Face ---
                 bc_index = bc_mask[e, face_idx]
                 x = coord_x[e, node_idx_local]
                 y = coord_y[e, node_idx_local]
+                
+                # 1. State (q) Ghost
                 qo = bc.apply_boundary_condition(bc_index, bc_data, qi, nx, ny, x, y, t, ramp_time, params)
                 
-                # For No-Slip Wall (Adiabatic or Isothermal), we must ensure consistent viscous stresses.
-                bc_type = bc_data[bc_index].type
-                if bc_type == bc.BC_NO_SLIP_WALL or bc_type == bc.BC_ISOTHERMAL_WALL:
-                    # 1. Temperature Gradient
-                    if bc_type == bc.BC_NO_SLIP_WALL:
-                        # Adiabatic Wall (Neumann=0): Heat Flux must be zero.
-                        # Reflection: Flip the NORMAL component of grad T.
-                        dot_T = gTi[0] * nx + gTi[1] * ny
-                        gTo = bc.make_vec2_generic(gTi[0] - params.one * (dot_T + dot_T) * nx, gTi[1] - params.one * (dot_T + dot_T) * ny)
-                    else:
-                        # Isothermal Wall: T is fixed, grad T remains as extrapolated from interior.
-                        gTo = gTi
-
-                    # 2. No-Slip Wall (Dirichlet=0): Velocity must be zero at the interface.
-                    # Reflection: Preserve NORMAL component, Flip TANGENTIAL component of grad U/V.
-                    # Formula: g_out = 2*(g_in . n) * n - g_in
-                    dot_u = gui[0] * nx + gui[1] * ny
-                    guo = bc.make_vec2_generic(params.one * (dot_u + dot_u) * nx - gui[0], params.one * (dot_u + dot_u) * ny - gui[1])
-                    
-                    dot_v = gvi[0] * nx + gvi[1] * ny
-                    gvo = bc.make_vec2_generic(params.one * (dot_v + dot_v) * nx - gvi[0], params.one * (dot_v + dot_v) * ny - gvi[1])
-                else:
-                    gTo = gTi
-                    guo = gui
-                    gvo = gvi
+                # 2. Gradient Ghosts (Decoupled Logic)
+                guo, gvo, gTo = bc.apply_viscous_gradient_correction(
+                    bc_index, bc_data, gui, gvi, gTi, nx, ny, params
+                )
                 
-            Fvo = viscous_flux_x(qo, guo, gvo, gTo, params) * nx + viscous_flux_y(qo, guo, gvo, gTo, params) * ny
-            
-            # Central viscous flux star
-            Fv_star = params.half * (Fvi + Fvo)
-            
-            # Enforce exact zero energy flux for Adiabatic No-Slip walls.
-            # This removes spurious viscous work terms (u.tau) that don't cancel perfectly.
-            # We use a check on neighbor_e < 0 to ensure we are on a boundary.
-            if neighbor_e < 0:
-                 bc_type_check = bc_data[bc_index].type
-                 if bc_type_check == bc.BC_NO_SLIP_WALL:
-                     # Set Energy flux (index 3) to 0.0
-                     zero = params.one - params.one
-                     Fv_star = bc.set_vec4_generic(Fv_star, 3, zero)
+                # 3. Outer Flux
+                Fvo = viscous_flux_x(qo, guo, gvo, gTo, params) * nx + viscous_flux_y(qo, guo, gvo, gTo, params) * ny
+                
+                # 4. Initial Star Flux
+                Fv_star = params.half * (Fvi + Fvo)
+                
+                # 5. Flux Correction (e.g. force adiabatic energy flux to 0)
+                Fv_star = bc.apply_viscous_flux_correction(bc_index, bc_data, Fv_star, params)
             
             # RHS contribution (strong form)
             jump = (Fv_star - Fvi) * surf_J

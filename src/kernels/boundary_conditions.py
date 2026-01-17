@@ -1,12 +1,12 @@
 import warp as wp
 from typing import Any
 from src.kernels.utils import (
-    make_vec2_generic,
+    make_vec2_generic,  # noqa: F401
     make_vec4_generic,
     get_half_generic,
     get_one_generic,
     get_any_generic,
-    set_vec4_generic
+    set_vec4_generic  # noqa: F401
 )
 
 # --- Boundary Condition Type Constants ---
@@ -249,3 +249,67 @@ def apply_boundary_condition(
     elif bc_type == BC_ISOTHERMAL_WALL:
         q_outer = apply_isothermal_wall(q_inner, bc_state.v0, params)
     return q_outer
+
+@wp.func
+def apply_viscous_gradient_correction(
+    bc_index: int,
+    bc_data: Any,
+    grad_u_inner: Any,
+    grad_v_inner: Any,
+    grad_T_inner: Any,
+    nx: Any,
+    ny: Any,
+    params: Any
+):
+    bc_state = bc_data[bc_index]
+    bc_type = bc_state.type
+    
+    grad_u_outer = grad_u_inner
+    grad_v_outer = grad_v_inner
+    grad_T_outer = grad_T_inner
+    
+    if bc_type == BC_NO_SLIP_WALL:
+        # --- Velocity (No-Slip) ---
+        # u = 0 at wall => Tangential derivative must be zero.
+        # Mirror Tangential component (flip sign), Keep Normal component.
+        # Formula: g_out = 2*(g_in . n)*n - g_in
+        dot_u = grad_u_inner[0] * nx + grad_u_inner[1] * ny
+        grad_u_outer = make_vec2_generic(params.one * (dot_u + dot_u) * nx - grad_u_inner[0], params.one * (dot_u + dot_u) * ny - grad_u_inner[1])
+        
+        dot_v = grad_v_inner[0] * nx + grad_v_inner[1] * ny
+        grad_v_outer = make_vec2_generic(params.one * (dot_v + dot_v) * nx - grad_v_inner[0], params.one * (dot_v + dot_v) * ny - grad_v_inner[1])
+        
+        # --- Temperature (Adiabatic) ---
+        # Heat Flux = 0 => Normal derivative of T must be zero.
+        # Mirror Normal component (flip sign), Keep Tangential component.
+        # Formula: g_out = g_in - 2*(g_in . n)*n
+        dot_T = grad_T_inner[0] * nx + grad_T_inner[1] * ny
+        grad_T_outer = make_vec2_generic(grad_T_inner[0] - params.one * (dot_T + dot_T) * nx, grad_T_inner[1] - params.one * (dot_T + dot_T) * ny)
+
+    elif bc_type == BC_ISOTHERMAL_WALL:
+        # --- Velocity (No-Slip) ---
+        dot_u = grad_u_inner[0] * nx + grad_u_inner[1] * ny
+        grad_u_outer = make_vec2_generic(params.one * (dot_u + dot_u) * nx - grad_u_inner[0], params.one * (dot_u + dot_u) * ny - grad_u_inner[1])
+        
+        dot_v = grad_v_inner[0] * nx + grad_v_inner[1] * ny
+        grad_v_outer = make_vec2_generic(params.one * (dot_v + dot_v) * nx - grad_v_inner[0], params.one * (dot_v + dot_v) * ny - grad_v_inner[1])
+        
+        # --- Temperature (Isothermal) ---
+        grad_T_outer = grad_T_inner
+        
+    return grad_u_outer, grad_v_outer, grad_T_outer
+
+@wp.func
+def apply_viscous_flux_correction(
+    bc_index: int,
+    bc_data: Any,
+    Fv_star: Any,
+    params: Any
+):
+    bc_state = bc_data[bc_index]
+    bc_type = bc_state.type
+    if bc_type == BC_NO_SLIP_WALL:
+         # Set Energy flux (index 3) to 0.0
+         zero = params.one - params.one
+         return set_vec4_generic(Fv_star, 3, zero)
+    return Fv_star

@@ -2,6 +2,7 @@
 import argparse
 import glob
 import os
+import shutil
 import subprocess
 import sys
 
@@ -64,9 +65,12 @@ def derive_tests_for_file(file_path):
     full_prompt = f"{TEST_DERIVATION_PROMPT}\n\nPlease analyze the file: {file_path}\nIMPORTANT: Provide the test plan as text output only. Do NOT attempt to create or modify any files."
 
     try:
-        print(f"Launching {GEMINI_CMD} for {file_path}...")
+        # Resolve the executable path (handles .cmd/.bat on Windows)
+        executable = shutil.which(GEMINI_CMD) or GEMINI_CMD
+        
+        print(f"Launching {executable} for {file_path}...")
         # Run in one-shot mode, capturing output.
-        result = subprocess.run([GEMINI_CMD, full_prompt], capture_output=True, text=True)
+        result = subprocess.run([executable, full_prompt], capture_output=True, text=True)
         
         if result.returncode == 0:
             # Construct path inside the output/ directory

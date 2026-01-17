@@ -57,7 +57,7 @@ def run_study():
     all_results = {}
     
     base_config_path = os.path.join(test_dir, "vortex.yaml")
-    output_dir = os.path.join(test_dir, "output")
+    output_dir = os.path.join(root_dir, "output", "vortex_convergence")
     
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -101,7 +101,7 @@ def run_study():
             config['simulation']['t_final'] = 1.0
             config['numerics']['flux'] = "hllc"
             config['numerics']['time_integrator'] = "rk4"
-            config['amr']['initial_depth'] = depth
+            config['mesh']['initial_depth'] = depth
             config['io']['output_dir'] = run_output_dir
             
             temp_config_path = os.path.join(test_dir, f"vortex_P{P}_D{depth}.yaml")
@@ -128,12 +128,12 @@ def run_study():
             # 4. Analyze Results
             h5_file = os.path.join(run_output_dir, "results.h5")
             with h5py.File(h5_file, 'r') as f:
-                points = f['mesh/points'][:]
                 steps = sorted([k for k in f['data'].keys() if k.startswith('step_')], 
                                key=lambda x: int(x.split('_')[1]))
                 last_step = steps[-1]
                 time = f['data'][last_step].attrs['time']
                 
+                points = f['data'][last_step]['mesh/points'][:]
                 rho_num = f['data'][last_step]['rho'][:]
                 x = points[:, 0]
                 y = points[:, 1]

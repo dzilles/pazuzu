@@ -19,7 +19,7 @@ def balance_refine_flags(
     refine_flags: Any,  # In/Out
     changed: Any        # Out (size 1)
 ):
-    tid = wp.tid()
+    tid = wp.tid() # type: ignore # type: ignore
     if tid >= num_active:
         return
         
@@ -40,25 +40,37 @@ def balance_refine_flags(
         nx = ix
         ny = iy
         
-        if face == 0: ny = iy - 1
-        elif face == 1: nx = ix + 1
-        elif face == 2: ny = iy + 1
-        elif face == 3: nx = ix - 1
+        if face == 0:
+            ny = iy - 1
+        elif face == 1:
+            nx = ix + 1
+        elif face == 2:
+            ny = iy + 1
+        elif face == 3:
+            nx = ix - 1
         
         # Periodic Wrap / Boundary Check
         if nx < 0:
-            if periodic_x != 0: nx = grid_dim - 1
-            else: continue
+            if periodic_x != 0:
+                nx = grid_dim - 1
+            else:
+                continue
         elif nx >= grid_dim:
-            if periodic_x != 0: nx = 0
-            else: continue
+            if periodic_x != 0:
+                nx = 0
+            else:
+                continue
             
         if ny < 0:
-            if periodic_y != 0: ny = grid_dim - 1
-            else: continue
+            if periodic_y != 0:
+                ny = grid_dim - 1
+            else:
+                continue
         elif ny >= grid_dim:
-            if periodic_y != 0: ny = 0
-            else: continue
+            if periodic_y != 0:
+                ny = 0
+            else:
+                continue
             
         # If we refine level L, any level L-1 neighbor MUST also be refined
         # to maintain 2:1 balance (otherwise we'd have L+1 next to L-1).
@@ -93,7 +105,7 @@ def mark_blocks_gradient(
     coarsen_threshold: float,
     max_depth: int
 ):
-    tid = wp.tid()
+    tid = wp.tid() # type: ignore
     if tid >= num_active:
         return
         
@@ -109,8 +121,10 @@ def mark_blocks_gradient(
     
     for i in range(Np):
         rho = q[pool_idx, i][0]
-        if rho < rho_min: rho_min = rho
-        if rho > rho_max: rho_max = rho
+        if rho < rho_min:
+            rho_min = rho
+        if rho > rho_max:
+            rho_max = rho
         
     diff = rho_max - rho_min
     
@@ -122,19 +136,56 @@ def mark_blocks_gradient(
         refine_flags[pool_idx] = 0
 
 @wp.kernel
+def mark_blocks_on_interface(
+    phi: Any,                 # (MAX_BLOCKS, Np) scalar
+    active_indices: Any,      # (num_active) int32
+    num_active: int,
+    refine_flags: Any         # (MAX_BLOCKS) int32 (In/Out)
+):
+    """
+    Forces refinement if the Immersed Boundary interface (phi=0) passes through the block.
+    """
+    tid = wp.tid() # type: ignore
+    if tid >= num_active:
+        return
+        
+    pool_idx = active_indices[tid]
+    Np = phi.shape[1]
+    
+    # 1. Compute Min/Max of Signed Distance in this block
+    # Initialize with the first node's value
+    val_0 = phi[pool_idx, 0]
+    min_phi = val_0
+    max_phi = val_0
+    
+    for i in range(1, Np):
+        val = phi[pool_idx, i]
+        if val < min_phi:
+            min_phi = val
+        if val > max_phi:
+            max_phi = val
+            
+    # 2. Check for Interface crossing
+    # If min is negative (solid) and max is positive (fluid), the interface is inside.
+    # Also refine if exactly 0.0 (on surface).
+    if min_phi * max_phi <= 0.0:
+        # Force refinement (Override any 'coarsen' or 'keep' decision)
+        refine_flags[pool_idx] = 1
+
+@wp.kernel
 def zero_blocks(
     q: Any,                 # (MAX, Np) vec4
     block_indices: Any,     # (num_blocks) int32
     num_blocks: int
 ):
-    tid_block, tid_node = wp.tid()
-    if tid_block >= num_blocks:
+    tid_block, tid_node = wp.tid() # type: ignore
+    if tid_block >= num_blocks: # type: ignore
         return
         
-    pool_idx = block_indices[tid_block]
+    pool_idx = block_indices[tid_block] # type: ignore
     template = q[0, 0][0]
     zero = template - template
-    q[pool_idx, tid_node] = u.make_vec4_generic(zero, zero, zero, zero)
+    q[pool_idx, tid_node] = u.make_vec4_generic(zero, zero, zero, zero) # type: ignore
 
 @wp.func
 def prolongate_block_func(
@@ -162,15 +213,17 @@ def prolongate_block_func(
     
     for k in range(N1):
         p_row_val = P_left[row, k]
-        if use_right_row: p_row_val = P_right[row, k]
+        if use_right_row:
+            p_row_val = P_right[row, k]
             
         inner_sum = u.make_vec4_generic(zero, zero, zero, zero)
-        for l in range(N1):
-            p_col_val = P_left[col, l]
-            if use_right_col: p_col_val = P_right[col, l]
+        for ll in range(N1):
+            p_col_val = P_left[col, ll]
+            if use_right_col:
+                p_col_val = P_right[col, ll]
             
             # parent_q index
-            q_idx = k * N1 + l
+            q_idx = k * N1 + ll
             inner_sum += parent_q[p_idx, q_idx] * p_col_val
             
         res += inner_sum * p_row_val
@@ -185,13 +238,14 @@ def prolongate_batch(
     P_left: Any,
     P_right: Any
 ):
-    tid = wp.tid()
+    tid = wp.tid() # type: ignore
     Np = q.shape[1]
     
-    op_idx = tid // Np
-    node_idx = tid % Np
+    op_idx = tid // Np # type: ignore
+    node_idx = tid % Np # type: ignore
     
-    if op_idx >= num_ops: return
+    if op_idx >= num_ops:
+        return
     
     p_idx = op_list[op_idx, 0]
     c_idx = op_list[op_idx, 1]
@@ -224,14 +278,16 @@ def restrict_block_func(
     
     for k in range(N1):
         r_row_val = R_left[row, k]
-        if use_right_row: r_row_val = R_right[row, k]
+        if use_right_row:
+            r_row_val = R_right[row, k]
             
         inner_sum = u.make_vec4_generic(zero, zero, zero, zero)
-        for l in range(N1):
-            r_col_val = R_left[col, l]
-            if use_right_col: r_col_val = R_right[col, l]
+        for ll in range(N1):
+            r_col_val = R_left[col, ll]
+            if use_right_col:
+                r_col_val = R_right[col, ll]
             
-            q_idx = k * N1 + l
+            q_idx = k * N1 + ll
             inner_sum += child_q[c_idx, q_idx] * r_col_val
             
         res += inner_sum * r_row_val
@@ -247,17 +303,17 @@ def restrict_batch(
     R_left: Any,
     R_right: Any
 ):
-    tid = wp.tid()
+    tid = wp.tid() # type: ignore
     Np = q.shape[1]
     
-    op_idx = tid // Np
-    node_idx = tid % Np
+    op_idx = tid // Np # type: ignore
+    node_idx = tid % Np # type: ignore
     
-    if op_idx >= num_ops: return
+    if op_idx >= num_ops:
+        return
     
     c_idx = op_list[op_idx, 0]
     p_idx = op_list[op_idx, 1]
     quad = op_list[op_idx, 2]
     
     restrict_block_func(q, c_idx, q, p_idx, quad, node_idx, R_left, R_right)
-

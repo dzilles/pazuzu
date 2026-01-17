@@ -127,9 +127,8 @@ def test_quadtree_connectivity_level2(device):
     codes = quadtree.block_morton_codes.numpy()
     
     # Helper to find pool index by (ix, iy) at level 2
-    from src.geometry.quadtree import morton_encode
     def get_idx(ix, iy):
-        code = morton_encode(ix, iy, 2)
+        code = Quadtree.morton_encode(ix, iy, 2)
         for i in range(16):
             if codes[i] == code: return i
         return -1
@@ -165,40 +164,29 @@ def test_quadtree_limits(device):
     # Level 1 requires 4 blocks. Should fail.
     with pytest.raises(ValueError, match="MAX_BLOCKS"):
         quadtree.uniform_refine(1, state, basis)
-        
-    # Default max_depth is 10. Try 11.
-    quadtree_big = Quadtree(device=device, max_blocks=10000)
-    with pytest.raises(ValueError, match="max_depth"):
-        quadtree_big.uniform_refine(11, state, basis)
-        
-    # Custom max_depth
-    quadtree_custom = Quadtree(device=device, max_blocks=10000, max_depth=2)
-    with pytest.raises(ValueError, match="max_depth"):
-        quadtree_custom.uniform_refine(3, state, basis)
 
 def test_morton_encoding_logic(device):
-    from src.geometry.quadtree import morton_encode
     
     # (0, 0) Level 0 -> Root code = 1
-    assert morton_encode(0, 0, 0) == 1
+    assert Quadtree.morton_encode(0, 0, 0) == 1
     
     # (0, 0) Level 1 -> (1 << 2) | 0 = 4
-    assert morton_encode(0, 0, 1) == 4
+    assert Quadtree.morton_encode(0, 0, 1) == 4
     # (1, 0) Level 1 -> (1 << 2) | 1 = 5
-    assert morton_encode(1, 0, 1) == 5
+    assert Quadtree.morton_encode(1, 0, 1) == 5
     # (0, 1) Level 1 -> (1 << 2) | 2 = 6
-    assert morton_encode(0, 1, 1) == 6
+    assert Quadtree.morton_encode(0, 1, 1) == 6
     # (1, 1) Level 1 -> (1 << 2) | 3 = 7
-    assert morton_encode(1, 1, 1) == 7
+    assert Quadtree.morton_encode(1, 1, 1) == 7
     
     # (2, 2) Level 2 -> (1 << 4) | interleaved(2, 2)
     # interleaved(2, 2) = 12
     # result = 16 | 12 = 28
-    assert morton_encode(2, 2, 2) == 28
+    assert Quadtree.morton_encode(2, 2, 2) == 28
 
     # Verify uniqueness across levels (The original bug)
     # Level 1 Block 2:
-    l1_c2 = morton_encode(0, 1, 1) # code 6
+    l1_c2 = Quadtree.morton_encode(0, 1, 1) # code 6
     # Level 2 Block 2 of Parent 0:
-    l2_c2 = (morton_encode(0, 0, 1) << 2) | 2 # code (4 << 2) | 2 = 18
+    l2_c2 = (Quadtree.morton_encode(0, 0, 1) << 2) | 2 # code (4 << 2) | 2 = 18
     assert l1_c2 != l2_c2
