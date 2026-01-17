@@ -51,7 +51,7 @@ physics:
 
 numerics:
   time_integrator: "ssp_rk3"
-  cfl: 0.4
+  cfl: 0.1
   polynomial_order: 3
   flux: "rusanov"
   hllc_fallback: true

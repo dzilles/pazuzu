@@ -84,6 +84,7 @@ def sample_state_at_point(
     x_p: float,
     y_p: float,
     q: wp.array(dtype=wp.vec4, ndim=2),
+    phi: wp.array(dtype=float, ndim=2),
     x: wp.array(dtype=float, ndim=2),
     y: wp.array(dtype=float, ndim=2),
     nodes_1d: wp.array(dtype=float),
@@ -91,10 +92,7 @@ def sample_state_at_point(
 ):
     """
     Interpolates the state q at point (x_p, y_p) within the block specified by pool_idx.
-    Uses bilinear interpolation on the sub-grid.
-    
-    Fix: Extrapolates true block boundaries from node positions to handle
-    nodes that are strictly interior (e.g. Gauss-Legendre).
+    Uses Renormalized Bilinear Interpolation to exclude solid nodes (Implicit Feedback Loop).
     """
     # 1. Determine Block Bounds via Extrapolation
     
@@ -107,18 +105,13 @@ def sample_state_at_point(
     x_end = x[pool_idx, N1 - 1]
     
     # Jacobian dX/dxi
-    # Avoid division by zero if N1=1 (though unlikely in this context)
     d_xi = xi_end - xi_start
-    # Fallback for single point or invalid grid, though physics assumes N > 0
     if d_xi < 1e-12:
          d_xi = 2.0
     
     J_x = (x_end - x_start) / d_xi
     
-    # Extrapolate to boundaries (-1.0 and 1.0)
-    # true_x_min corresponds to xi = -1.0
     true_x_min = x_start - J_x * (xi_start - (-1.0))
-    # true_x_max corresponds to xi = 1.0
     true_x_max = x_end + J_x * (1.0 - xi_end)
     
     # Y-direction (using left column: 0 to (N1-1)*N1)
@@ -126,7 +119,6 @@ def sample_state_at_point(
     y_start = y[pool_idx, 0]
     y_end = y[pool_idx, idx_top_left]
     
-    # Jacobian dY/deta (assuming same node distribution)
     J_y = (y_end - y_start) / d_xi
     
     true_y_min = y_start - J_y * (xi_start - (-1.0))
@@ -141,14 +133,10 @@ def sample_state_at_point(
     eta = 2.0 * (yp_c - true_y_min) / (true_y_max - true_y_min) - 1.0
     
     # 4. Find the GLL cell containing (xi, eta)
-    # nodes_1d is sorted [-1, ... 1]
-    # We find i such that nodes_1d[i] <= xi <= nodes_1d[i+1]
-    
     idx_i = int(0)
     idx_j = int(0)
     
     # Linear scan for i (x-direction)
-    # Range is 0 to N1-2 (since we check i and i+1)
     for k in range(N1 - 1):
         if xi >= nodes_1d[k] and xi <= nodes_1d[k+1]:
             idx_i = k
@@ -160,8 +148,7 @@ def sample_state_at_point(
             idx_j = k
             break
             
-    # 5. Bilinear Interpolation Weights
-    # u_local in [0, 1] within the interval
+    # 5. Bilinear Interpolation Weights (Base)
     xi_0 = nodes_1d[idx_i]
     xi_1 = nodes_1d[idx_i+1]
     eta_0 = nodes_1d[idx_j]
@@ -170,27 +157,62 @@ def sample_state_at_point(
     u_w = (xi - xi_0) / (xi_1 - xi_0)
     v_w = (eta - eta_0) / (eta_1 - eta_0)
     
-    # 6. Fetch 4 corner values
+    w00 = (1.0 - u_w) * (1.0 - v_w)
+    w10 = u_w * (1.0 - v_w)
+    w01 = (1.0 - u_w) * v_w
+    w11 = u_w * v_w
+    
+    # 6. Fetch Data and Apply Renormalization Mask
     # Indices in the flattened block array
-    # idx = j * N1 + i
     node_00 = idx_j * N1 + idx_i
     node_10 = idx_j * N1 + (idx_i + 1)
     node_01 = (idx_j + 1) * N1 + idx_i
     node_11 = (idx_j + 1) * N1 + (idx_i + 1)
     
+    # Fetch State
     q00 = q[pool_idx, node_00]
     q10 = q[pool_idx, node_10]
     q01 = q[pool_idx, node_01]
     q11 = q[pool_idx, node_11]
     
-    # Interpolate
-    # (1-u)(1-v) * q00 + u(1-v) * q10 + (1-u)v * q01 + uv * q11
-    q_val = (1.0 - u_w) * (1.0 - v_w) * q00 + \
-            u_w * (1.0 - v_w) * q10 + \
-            (1.0 - u_w) * v_w * q01 + \
-            u_w * v_w * q11
+    # Fetch SDF (phi)
+    phi00 = phi[pool_idx, node_00]
+    phi10 = phi[pool_idx, node_10]
+    phi01 = phi[pool_idx, node_01]
+    phi11 = phi[pool_idx, node_11]
+    
+    # Compute Validity Masks (1.0 if fluid/interface, 0.0 if solid)
+    # Epsilon for robust float comparison
+    epsilon = 1e-6
+    m00 = wp.where(phi00 > -epsilon, 1.0, 0.0)
+    m10 = wp.where(phi10 > -epsilon, 1.0, 0.0)
+    m01 = wp.where(phi01 > -epsilon, 1.0, 0.0)
+    m11 = wp.where(phi11 > -epsilon, 1.0, 0.0)
+    
+    # Effective Weights
+    ew00 = w00 * m00
+    ew10 = w10 * m10
+    ew01 = w01 * m01
+    ew11 = w11 * m11
+    
+    # Renormalize
+    w_total = ew00 + ew10 + ew01 + ew11
+    
+    # Fallback: If all neighbors are solid (w_total ~ 0), we must return something.
+    # In a ghost-cell method, this implies the image point is deeply buried.
+    # We fallback to standard bilinear (using all nodes) to avoid NaNs, 
+    # though the value might be non-physical.
+    
+    q_final = wp.vec4(0.0, 0.0, 0.0, 0.0)
+    
+    if w_total > 1e-6:
+        inv_w = 1.0 / w_total
+        q_final = (q00 * ew00 + q10 * ew10 + q01 * ew01 + q11 * ew11) * inv_w
+    else:
+        # Fallback to standard bilinear (includes solid nodes)
+        q_final = q00 * w00 + q10 * w10 + q01 * w01 + q11 * w11
             
-    return q_val
+    return q_final
 
 @wp.func
 def find_block_id(
@@ -311,7 +333,7 @@ def apply_ibm_forcing(
                 target_block_idx = pool_idx
             
             # 5. Interpolate State at Image Point
-            q_img = sample_state_at_point(target_block_idx, x_img, y_img, q, x, y, nodes_1d, N1)
+            q_img = sample_state_at_point(target_block_idx, x_img, y_img, q, phi, x, y, nodes_1d, N1)
             
             # 6. Apply Boundary Condition (Slip Wall)
             rho_img = q_img[0]
