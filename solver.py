@@ -386,7 +386,14 @@ class PazuzuSolver:
 
         cutoff = 100.0 # Force ALL solid nodes
         invert_flag = 1 if self.config.ibm.invert_inside_outside else 0
-        boundary_type_id = 1 if self.config.ibm.boundary_type == "no_slip" else 0
+        
+        # Default to No-Slip (1) for stability unless Slip (0) is explicitly requested
+        if self.config.ibm.boundary_type == "slip":
+            boundary_type_id = 0
+        else:
+            boundary_type_id = 1
+            if self.config.ibm.boundary_type != "no_slip":
+                print("IBM: Defaulting to No-Slip forcing for numerical stability.")
         
         wp.launch(
             kernel=apply_ibm_forcing,

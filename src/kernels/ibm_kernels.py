@@ -91,26 +91,54 @@ def sample_state_at_point(
 ):
     """
     Interpolates the state q at point (x_p, y_p) within the block specified by pool_idx.
-    Uses bilinear interpolation on the GLL sub-grid.
+    Uses bilinear interpolation on the sub-grid.
+    
+    Fix: Extrapolates true block boundaries from node positions to handle
+    nodes that are strictly interior (e.g. Gauss-Legendre).
     """
-    # 1. Determine Block Bounds
-    # Assuming tensor product ordering: 0 is bottom-left, Np-1 is top-right
-    Np = N1 * N1
+    # 1. Determine Block Bounds via Extrapolation
     
-    # Bounds of the block
-    x_min = x[pool_idx, 0]
-    x_max = x[pool_idx, Np - 1]
-    y_min = y[pool_idx, 0]
-    y_max = y[pool_idx, Np - 1]
+    # Reference coordinates
+    xi_start = nodes_1d[0]
+    xi_end = nodes_1d[N1 - 1]
     
-    # 2. Clamp to Block Boundaries (Nearest Neighbor Fallback for ghost cells outside)
-    xp_c = wp.clamp(x_p, x_min, x_max)
-    yp_c = wp.clamp(y_p, y_min, y_max)
+    # X-direction (using bottom row: 0 to N1-1)
+    x_start = x[pool_idx, 0]
+    x_end = x[pool_idx, N1 - 1]
+    
+    # Jacobian dX/dxi
+    # Avoid division by zero if N1=1 (though unlikely in this context)
+    d_xi = xi_end - xi_start
+    # Fallback for single point or invalid grid, though physics assumes N > 0
+    if d_xi < 1e-12:
+         d_xi = 2.0
+    
+    J_x = (x_end - x_start) / d_xi
+    
+    # Extrapolate to boundaries (-1.0 and 1.0)
+    # true_x_min corresponds to xi = -1.0
+    true_x_min = x_start - J_x * (xi_start - (-1.0))
+    # true_x_max corresponds to xi = 1.0
+    true_x_max = x_end + J_x * (1.0 - xi_end)
+    
+    # Y-direction (using left column: 0 to (N1-1)*N1)
+    idx_top_left = (N1 - 1) * N1
+    y_start = y[pool_idx, 0]
+    y_end = y[pool_idx, idx_top_left]
+    
+    # Jacobian dY/deta (assuming same node distribution)
+    J_y = (y_end - y_start) / d_xi
+    
+    true_y_min = y_start - J_y * (xi_start - (-1.0))
+    true_y_max = y_end + J_y * (1.0 - xi_end)
+    
+    # 2. Clamp to True Block Boundaries
+    xp_c = wp.clamp(x_p, true_x_min, true_x_max)
+    yp_c = wp.clamp(y_p, true_y_min, true_y_max)
     
     # 3. Map to Reference Coordinates [-1, 1]
-    # xi = 2 * (x - xmin) / (xmax - xmin) - 1
-    xi = 2.0 * (xp_c - x_min) / (x_max - x_min) - 1.0
-    eta = 2.0 * (yp_c - y_min) / (y_max - y_min) - 1.0
+    xi = 2.0 * (xp_c - true_x_min) / (true_x_max - true_x_min) - 1.0
+    eta = 2.0 * (yp_c - true_y_min) / (true_y_max - true_y_min) - 1.0
     
     # 4. Find the GLL cell containing (xi, eta)
     # nodes_1d is sorted [-1, ... 1]
