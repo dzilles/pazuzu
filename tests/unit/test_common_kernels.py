@@ -8,6 +8,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 from src.kernels import common_kernels
+from src.kernels.structs import EquationParams32
 
 class TestCommonKernels:
     
@@ -26,8 +27,7 @@ class TestCommonKernels:
             dt = 0.1
     
             active_indices = np.arange(num_elems, dtype=np.int32)
-    
-            
+            params = EquationParams32()
     
             q_wp = wp.array(q, dtype=wp.vec4, device=device)
     
@@ -45,7 +45,7 @@ class TestCommonKernels:
     
                 dim=(num_elems, Np),
     
-                inputs=[q_wp, rhs_wp, dt, q_out_wp, active_wp],
+                inputs=[q_wp, rhs_wp, dt, q_out_wp, active_wp, params],
     
                 device=device
     
@@ -80,6 +80,7 @@ class TestCommonKernels:
             c2 = 0.25
     
             active_indices = np.arange(num_elems, dtype=np.int32)
+            params = EquationParams32()
     
             
     
@@ -101,7 +102,7 @@ class TestCommonKernels:
     
                 dim=(num_elems, Np),
     
-                inputs=[q_wp, q_1_wp, rhs_wp, dt, q_out_wp, c1, c2, active_wp],
+                inputs=[q_wp, q_1_wp, rhs_wp, dt, q_out_wp, c1, c2, active_wp, params],
     
                 device=device
     

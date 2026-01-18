@@ -283,6 +283,7 @@ def apply_ibm_forcing(
     """
     Applies Ghost-Cell forcing for IBM.
     Reflects the state at 'image point' to the 'ghost node' (solid).
+    Includes safety clamping to prevent vacuum/velocity explosions.
     """
     block_id, node_id = wp.tid()
     pool_idx = active_block_indices[block_id]
@@ -334,9 +335,33 @@ def apply_ibm_forcing(
             rhov_img = q_img[2]
             E_img = q_img[3]
             
-            u_img = rhou_img / rho_img
-            v_img = rhov_img / rho_img
+            # --- START FIX: Sanitize Image State ---
             
+            # 1. Clamp Density to Physics Floor
+            rho_safe = wp.max(rho_img, params.rho_floor)
+            
+            u_img = float(0.0)
+            v_img = float(0.0)
+            
+            # 2. Extract Velocity Safely
+            # If density is dangerously close to the floor (vacuum), 
+            # we zero out the velocity to prevent numerical explosion.
+            # 2.0x safety margin is arbitrary but robust.
+            if rho_img > 2.0 * params.rho_floor:
+                inv_rho = 1.0 / rho_img
+                u_img = rhou_img * inv_rho
+                v_img = rhov_img * inv_rho
+            
+            # 3. Calculate Image Pressure (safely)
+            ke_img = 0.5 * rho_safe * (u_img*u_img + v_img*v_img)
+            p_img = (params.gamma - 1.0) * (E_img - ke_img)
+            
+            # 4. Clamp Pressure
+            p_safe = wp.max(p_img, params.p_floor)
+            
+            # --- End FIX ---
+
+            # Apply Boundary Condition (Reflection)
             if boundary_type_id == 1: # No-Slip
                 u_ghost = -u_img
                 v_ghost = -v_img
@@ -349,5 +374,13 @@ def apply_ibm_forcing(
                 u_ghost = vt_x - vn_x
                 v_ghost = vt_y - vn_y
             
-            q_ghost = wp.vec4(rho_img, rho_img * u_ghost, rho_img * v_ghost, E_img)
+            # Reconstruct Ghost State
+            # We copy density/pressure from image (Neumann-ish for P, Dirichlet for rho)
+            # but use the Reflected velocity.
+            
+            rho_ghost = rho_safe 
+            ke_ghost = 0.5 * rho_ghost * (u_ghost*u_ghost + v_ghost*v_ghost)
+            E_ghost = p_safe / (params.gamma - 1.0) + ke_ghost
+            
+            q_ghost = wp.vec4(rho_ghost, rho_ghost * u_ghost, rho_ghost * v_ghost, E_ghost)
             q[pool_idx, node_id] = q_ghost

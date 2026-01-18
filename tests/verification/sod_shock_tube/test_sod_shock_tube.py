@@ -115,8 +115,7 @@ def test_sod_shock_tube_capturing(device="cpu"):
             device=device
         )
         # C. FV Update
-        wp.launch(kernel=fv_kernels.compute_fv_update, dim=quadtree.num_blocks * basis.Np, inputs=[q_in, rhs_out, state.active_block_indices, state.neighbors, state.solver_mode, basis.weights_1d, state.root_bounds, state.block_levels, params], device=device)
-
+        wp.launch(kernel=fv_kernels.compute_fv_update, dim=quadtree.num_blocks * basis.Np, inputs=[q_in, rhs_out, state.active_block_indices, state.neighbors, state.solver_mode, state.bc_mask, state.bc_data, state.x, state.y, basis.weights_1d, state.root_bounds, state.block_levels, params, t_curr], device=device)
     # 8. Run Loop
     num_steps = 20 # Run short duration to verify capturing without boundary issues crashing it
     print(f"Running {num_steps} steps...")
@@ -124,7 +123,7 @@ def test_sod_shock_tube_capturing(device="cpu"):
     troubled_detected = False
     
     for step in range(1, num_steps + 1):
-        integrator.step_ssp_rk3(compute_rhs_hybrid, dt, state.t, quadtree.num_blocks)
+        integrator.step_ssp_rk3(compute_rhs_hybrid, dt, state.t, quadtree.num_blocks, params)
         state.t += dt
         
         # Check for NaNs

@@ -558,10 +558,17 @@ class PazuzuSolver:
                 self.state.active_block_indices,
                 self.state.neighbors,
                 self.state.solver_mode,
-                self.basis.weights_1d, # Need weights for area
+                # --- NEW INPUTS ---
+                self.state.bc_mask,
+                self.state.bc_data,
+                self.state.x,
+                self.state.y,
+                # ------------------
+                self.basis.weights_1d,
                 self.quadtree.root_bounds_wp,
                 self.quadtree.block_levels,
-                self.params
+                self.params,
+                self.scalar_dtype(t) # Pass time
             ],
             device=self.device
         )
@@ -663,14 +670,16 @@ class PazuzuSolver:
                     self.compute_rhs,
                     dt,
                     t,
-                    self.quadtree.num_blocks
+                    self.quadtree.num_blocks,
+                    self.params
                 )
             else:
                 self.integrator.step_ssp_rk3(
                     self.compute_rhs,
                     dt,
                     t,
-                    self.quadtree.num_blocks
+                    self.quadtree.num_blocks,
+                    self.params
                 )
             
             t += dt

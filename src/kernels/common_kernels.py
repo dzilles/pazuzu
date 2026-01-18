@@ -2,13 +2,55 @@ import warp as wp
 from typing import Any
 from src.kernels import utils as u
 
+@wp.func
+def enforce_floors(
+    q_in: Any,
+    params: Any
+):
+    """
+    Enforces density and pressure floors on a state vector.
+    """
+    rho = q_in[0]
+    rhou = q_in[1]
+    rhov = q_in[2]
+    E = q_in[3]
+
+    one = u.get_one_generic(rho)
+    zero = u.get_any_generic(rho, 0.0)
+
+    # 1. Density Floor
+    if rho < params.rho_floor:
+        rho = params.rho_floor
+        # Zero out momentum if density was invalid (prevent huge velocity)
+        rhou = rho * zero
+        rhov = rho * zero
+
+    half = u.get_half_generic(rho)
+    # 2. Pressure Floor
+    inv_rho = one / rho
+    
+    u_vel = rhou * inv_rho
+    v_vel = rhov * inv_rho
+    ke = half * rho * (u_vel*u_vel + v_vel*v_vel)
+    
+    p = (params.gamma - one) * (E - ke)
+    
+    if p < params.p_floor:
+        # Reconstruct Energy to preserve velocity but fix pressure
+        p_new = params.p_floor
+        E = p_new / (params.gamma - one) + ke
+
+    # Write back valid state
+    return u.make_vec4_generic(rho, rhou, rhov, E)
+
 @wp.kernel
 def rk_stage_1(
     q: Any,
     rhs: Any,
     dt: Any,
     q_out: Any,
-    active_indices: Any
+    active_indices: Any,
+    params: Any
 ):
     """
     Performs the first stage of the Low-Storage SSP-RK3 time integration scheme.
@@ -16,7 +58,8 @@ def rk_stage_1(
     block_idx, node_idx = wp.tid()  # type: ignore
     pool_idx = active_indices[block_idx] # type: ignore
     
-    q_out[pool_idx, node_idx] = q[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx] # type: ignore
+    q_new = q[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx] # type: ignore
+    q_out[pool_idx, node_idx] = enforce_floors(q_new, params)
 
 @wp.kernel
 def rk_stage_2(
@@ -27,7 +70,8 @@ def rk_stage_2(
     q_out: Any,   # Destination for Q(2)
     c1: Any, # 0.75
     c2: Any, # 0.25
-    active_indices: Any
+    active_indices: Any,
+    params: Any
 ):
     """
     Performs the second stage of the Low-Storage SSP-RK3 time integration scheme.
@@ -35,7 +79,8 @@ def rk_stage_2(
     block_idx, node_idx = wp.tid()  # type: ignore
     pool_idx = active_indices[block_idx] # type: ignore
     
-    q_out[pool_idx, node_idx] = c1 * q[pool_idx, node_idx] + c2 * (q_1[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx]) # type: ignore
+    q_new = c1 * q[pool_idx, node_idx] + c2 * (q_1[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx]) # type: ignore
+    q_out[pool_idx, node_idx] = enforce_floors(q_new, params)
 
 @wp.kernel
 def rk_stage_3(
@@ -46,7 +91,8 @@ def rk_stage_3(
     q_out: Any,   # Destination for Q(n+1)
     c1: Any, # 1/3
     c2: Any,  # 2/3
-    active_indices: Any
+    active_indices: Any,
+    params: Any
     ):
     """
     Performs the third and final stage of the Low-Storage SSP-RK3 time integration scheme.
@@ -54,7 +100,8 @@ def rk_stage_3(
     block_idx, node_idx = wp.tid()  # type: ignore
     pool_idx = active_indices[block_idx] # type: ignore
     
-    q_out[pool_idx, node_idx] = c1 * q[pool_idx, node_idx] + c2 * (q_2[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx]) # type: ignore
+    q_new = c1 * q[pool_idx, node_idx] + c2 * (q_2[pool_idx, node_idx] + dt * rhs[pool_idx, node_idx]) # type: ignore
+    q_out[pool_idx, node_idx] = enforce_floors(q_new, params)
 
 @wp.kernel
 def rk4_stage_update(
@@ -65,7 +112,8 @@ def rk4_stage_update(
     dt: Any,
     weight_accum: Any,
     weight_next: Any,
-    active_indices: Any
+    active_indices: Any,
+    params: Any
 ):
     """
     Updates the accumulator and prepares the next stage state for RK4.
@@ -78,7 +126,9 @@ def rk4_stage_update(
     
     term = dt * rhs[pool_idx, node_idx] # type: ignore
     q_accum[pool_idx, node_idx] = q_accum[pool_idx, node_idx] + weight_accum * term # type: ignore
-    q_next[pool_idx, node_idx] = q_old[pool_idx, node_idx] + weight_next * term # type: ignore
+    
+    q_new = q_old[pool_idx, node_idx] + weight_next * term # type: ignore
+    q_next[pool_idx, node_idx] = enforce_floors(q_new, params)
 
 @wp.kernel
 def rk4_final_update(

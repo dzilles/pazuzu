@@ -204,18 +204,22 @@ def test_fv_kernel_switching(device="cpu"):
     wp.launch(
         kernel=fv_kernels.compute_fv_update,
         dim=state.num_active_blocks * basis.Np,
-        inputs=[
-            state.q,
-            state.rhs,
-            state.active_block_indices,
-            state.neighbors,
-            state.solver_mode, # The gatekeeper
-            basis.weights_1d,
-            state.root_bounds,
-            state.block_levels,
-            params
-        ],
-        device=device
+                    inputs=[
+                        state.q,
+                        state.rhs,
+                        state.active_block_indices,
+                        state.neighbors,
+                        state.solver_mode, # The gatekeeper
+                        state.bc_mask,
+                        state.bc_data,
+                        state.x,
+                        state.y,
+                        basis.weights_1d,
+                        state.root_bounds,
+                        state.block_levels,
+                        params,
+                        0.0 # Time
+                    ],        device=device
     )
     
     rhs_res = state.rhs.numpy()

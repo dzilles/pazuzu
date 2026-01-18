@@ -24,6 +24,10 @@ class TestKarmanEuler:
             "io.write_interval": 50
         })
         
+        # Create output directory if it doesn't exist
+        output_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", config.io.output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+        
         solver = PazuzuSolver(config)
         
         # Verify Mesh Adaptation around Cylinder

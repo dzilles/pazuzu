@@ -15,7 +15,7 @@ class TimeIntegrator:
     def step(self, rhs_function, dt: float, time: float):
         pass
 
-    def step_rk4(self, rhs_function, dt: float, time: float, num_active: int):
+    def step_rk4(self, rhs_function, dt: float, time: float, num_active: int, params: Any):
         """
         Classic Runge-Kutta 4th Order.
         """
@@ -42,7 +42,8 @@ class TimeIntegrator:
                 scalar_dtype(dt),
                 scalar_dtype(1.0/6.0), # weight_accum
                 scalar_dtype(0.5),      # weight_next
-                self.state.active_block_indices
+                self.state.active_block_indices,
+                params
             ],
             device=self.state.device
         )
@@ -64,7 +65,8 @@ class TimeIntegrator:
                 scalar_dtype(dt),
                 scalar_dtype(1.0/3.0),
                 scalar_dtype(0.5),
-                self.state.active_block_indices
+                self.state.active_block_indices,
+                params
             ],
             device=self.state.device
         )
@@ -86,7 +88,8 @@ class TimeIntegrator:
                 scalar_dtype(dt),
                 scalar_dtype(1.0/3.0),
                 scalar_dtype(1.0),
-                self.state.active_block_indices
+                self.state.active_block_indices,
+                params
             ],
             device=self.state.device
         )
@@ -127,12 +130,13 @@ class TimeIntegrator:
                 self.state.q_accum,
                 scalar_dtype(1.0),
                 self.state.q,
-                self.state.active_block_indices
+                self.state.active_block_indices,
+                params
             ],
             device=self.state.device
         )
 
-    def step_ssp_rk3(self, rhs_function, dt: float, time: float, num_active: int):
+    def step_ssp_rk3(self, rhs_function, dt: float, time: float, num_active: int, params: Any):
         scalar_dtype = self.state.scalar_dtype
         
         # --- Stage 1 ---
@@ -149,7 +153,8 @@ class TimeIntegrator:
                 self.state.rhs,
                 scalar_dtype(dt),
                 self.state.q_temp, # Output to Temp
-                self.state.active_block_indices
+                self.state.active_block_indices,
+                params
             ],
             device=self.state.device
         )
@@ -171,7 +176,8 @@ class TimeIntegrator:
                 self.state.q_temp,  # Output Q(2)
                 scalar_dtype(0.75),
                 scalar_dtype(0.25),
-                self.state.active_block_indices
+                self.state.active_block_indices,
+                params
             ],
             device=self.state.device
         )
@@ -195,7 +201,8 @@ class TimeIntegrator:
                 self.state.q,      # Output Q_n+1
                 scalar_dtype(1.0/3.0),
                 scalar_dtype(2.0/3.0),
-                self.state.active_block_indices
+                self.state.active_block_indices,
+                params
             ],
             device=self.state.device
         )
