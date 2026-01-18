@@ -32,11 +32,18 @@ def get_subcell_geometry(
     domain_h = root_bounds[3] - root_bounds[1]
     
     # One block's physical size
-    block_w = domain_w / float(grid_dim)
-    block_h = domain_h / float(grid_dim)
+    # Cast grid_dim to the same type as domain_w using get_any_generic
+    f_grid_dim = u.get_any_generic(domain_w, grid_dim)
+    
+    block_w = domain_w / f_grid_dim
+    block_h = domain_h / f_grid_dim
     
     # Jacobian Det = (block_w/2) * (block_h/2)
-    jacobian = (block_w * 0.5) * (block_h * 0.5)
+    # Use generic helper to ensure 0.5 matches the type of block_w/block_h
+    half_w = block_w * u.get_half_generic(block_w)
+    half_h = block_h * u.get_half_generic(block_h)
+    
+    jacobian = half_w * half_h
     
     area = w_i * w_j * jacobian
     return area, block_w, block_h
@@ -88,11 +95,11 @@ def compute_fv_update(
     grid_dim = 1 << my_level
     
     vol, block_w, block_h = get_subcell_geometry(weights_1d, grid_dim, root_bounds, i, j)
-    inv_vol = 1.0 / vol
+    inv_vol = u.get_one_generic(vol) / vol
     
     # Constants
-    one = 1.0
-    zero = 0.0
+    one = u.get_one_generic(vol)
+    zero = u.get_any_generic(vol, 0.0)
     
     # Local State
     q_curr = q[pool_idx, node_local]
@@ -100,7 +107,7 @@ def compute_fv_update(
     # --- Flux Integration (X-Direction) ---
     # Interfaces are at i-1/2 (Left) and i+1/2 (Right)
     # Face Area (Length in 2D) = w_j * (block_h / 2)
-    dy_phys = weights_1d[j] * (block_h * 0.5)
+    dy_phys = weights_1d[j] * (block_h * u.get_half_generic(block_h))
     
     flux_balance_x = u.make_vec4_generic(zero, zero, zero, zero)
     
@@ -156,7 +163,7 @@ def compute_fv_update(
     # --- Flux Integration (Y-Direction) ---
     # Interfaces are at j-1/2 (Bottom) and j+1/2 (Top)
     # Face Area = w_i * (block_w / 2)
-    dx_phys = weights_1d[i] * (block_w * 0.5)
+    dx_phys = weights_1d[i] * (block_w * u.get_half_generic(block_w))
     
     flux_balance_y = u.make_vec4_generic(zero, zero, zero, zero)
     

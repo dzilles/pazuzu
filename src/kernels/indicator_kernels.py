@@ -12,17 +12,6 @@ def compute_persson_peraire(
 ):
     """
     Computes the Persson-Peraire smoothness indicator (Se) for each active block.
-    
-    Se = log10( (q - F*q)^2 / q^2 )  <-- Actually usually just the ratio, log is done in threshold check or here.
-    The instruction says: Se = E_diff / E.
-    
-    Args:
-        q: State array (max_blocks, Np, 4)
-        active_indices: Array of active block indices
-        filter_matrix: (Np, Np) spectral filter matrix
-        element_indicator: Output array (max_blocks)
-        num_active: Number of active blocks
-        component: The state component to analyze (e.g., 0 for Density)
     """
     tid = wp.tid()
     if tid >= num_active:
@@ -34,8 +23,12 @@ def compute_persson_peraire(
     Np = filter_matrix.shape[0]
     
     # Calculate Energies
-    E_total = float(0.0)
-    E_diff = float(0.0)
+    # Use subtraction to get a zero of the correct type
+    val_0 = q[block_idx, 0][component]
+    zero = val_0 - val_0
+    
+    E_total = zero
+    E_diff = zero
     
     # Loop over nodes i
     for i in range(Np):
@@ -43,11 +36,9 @@ def compute_persson_peraire(
         val_i = q[block_idx, i][component]
         
         # Apply Filter: tilde_val_i = sum_j (F[i, j] * val_j)
-        tilde_val_i = float(0.0)
+        tilde_val_i = zero
         for j in range(Np):
             val_j = q[block_idx, j][component]
-            # filter_matrix is (Np, Np)
-            # Assuming row-major storage for matrix multiplication F * q
             f_ij = filter_matrix[i, j] 
             tilde_val_i += f_ij * val_j
             
@@ -58,7 +49,7 @@ def compute_persson_peraire(
         E_diff += diff * diff
         
     # Avoid division by zero
-    Se = 0.0
+    Se = zero
     if E_total > 1e-20:
         Se = E_diff / E_total
         
@@ -69,7 +60,7 @@ def mark_troubled_cells(
     element_indicator: Any,
     active_indices: Any,
     solver_mode: Any,
-    threshold: float,
+    threshold: Any, # Generic to support float32/float64
     num_active: int
 ):
     """

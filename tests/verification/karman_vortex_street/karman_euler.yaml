@@ -2,7 +2,7 @@ case_name: "karman_euler"
 solver_type: "euler_2d"
 
 mesh:
-  initial_depth: 6
+  initial_depth: 7
   x_min: -5.0
   x_max: 15.0
   y_min: -5.0
@@ -29,8 +29,8 @@ boundaries:
 
 amr:
   enabled: false
-  max_depth: 7
-  max_blocks: 20000
+  max_depth: 8
+  max_blocks: 40000
   refinement_threshold: 0.1
   coarsening_threshold: 0.05
   refine_interval: 10
@@ -52,7 +52,7 @@ physics:
 numerics:
   time_integrator: "ssp_rk3"
   cfl: 0.1
-  polynomial_order: 3
+  polynomial_order: 2
   flux: "rusanov"
   hllc_fallback: true
 
